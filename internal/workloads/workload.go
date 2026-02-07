@@ -48,6 +48,14 @@ type Workload interface {
 	VMCount() int
 }
 
+// MultiVMWorkload extends Workload for workloads that need per-role userdata.
+// The orchestration layer checks VMCount() > 1 and type-asserts to this
+// interface to call UserdataForRole() for each VM role.
+type MultiVMWorkload interface {
+	Workload
+	UserdataForRole(role string, namespace string) (string, error)
+}
+
 // VMResourceSpec holds CPU and memory requirements for a VM.
 type VMResourceSpec struct {
 	CPUCores int
