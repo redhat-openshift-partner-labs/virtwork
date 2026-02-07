@@ -1,0 +1,12 @@
+# IDE
+.idea/
+
+# Claude logs
+claude-logs/
+
+# Binaries
+/virtwork
+*.exe
+
+# OS
+.DS_Store

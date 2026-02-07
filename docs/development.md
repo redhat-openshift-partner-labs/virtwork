@@ -1,0 +1,391 @@
+# Development Guide
+
+## Environment Setup
+
+### Prerequisites
+
+- Go 1.25+
+- [Ginkgo CLI](https://onsi.github.io/ginkgo/#installing-ginkgo) (for BDD test runner)
+
+### Install Ginkgo CLI
+
+```bash
+go install github.com/onsi/ginkgo/v2/ginkgo@latest
+```
+
+### Install Dependencies
+
+```bash
+go mod download
+```
+
+## Building
+
+```bash
+# Build the binary
+go build -o virtwork ./cmd/virtwork
+
+# Run without building
+go run ./cmd/virtwork --help
+go run ./cmd/virtwork run --dry-run
+go run ./cmd/virtwork run --dry-run --ssh-user virtwork --ssh-key-file ~/.ssh/id_ed25519.pub
+```
+
+## Running Tests
+
+```bash
+# Full unit test suite
+go test ./...
+
+# With race detector
+go test -race ./...
+
+# Specific package
+go test ./internal/vm/...
+
+# With verbose output
+go test -v ./...
+
+# With coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Using Ginkgo
+
+```bash
+# Run all tests recursively
+ginkgo -r
+
+# Run specific package
+ginkgo ./internal/vm/
+
+# Verbose with labels
+ginkgo -r -v
+
+# With race detector
+ginkgo -r -race
+
+# Run in parallel (multiple Ginkgo nodes)
+ginkgo -r -p
+
+# Focus on specific tests (use FDescribe/FIt in code)
+ginkgo -r --focus "BuildVMSpec"
+```
+
+### Test Organization
+
+| Directory | Build Tag | Cluster Required | Description |
+|-----------|-----------|------------------|-------------|
+| `internal/*/` | (none) | No | Unit tests alongside source, all K8s calls use fake client |
+| `tests/integration/` | `integration` | Yes | Real cluster interactions |
+| `tests/e2e/` | `e2e` | Yes | Full workflow validation |
+
+Unit tests use controller-runtime's fake client:
+
+```go
+fake.NewClientBuilder().
+    WithScheme(cluster.NewScheme()).
+    WithObjects(existingResources...).
+    Build()
+```
+
+### Running Integration and E2E Tests
+
+```bash
+# Integration tests (requires cluster)
+go test -tags integration ./tests/integration/...
+
+# E2E tests (requires cluster)
+go test -tags e2e ./tests/e2e/...
+
+# Via Ginkgo
+ginkgo -r -tags integration ./tests/integration/
+ginkgo -r -tags e2e ./tests/e2e/
+```
+
+## Project Layout
+
+```
+cmd/virtwork/       # Entry point (Cobra root + subcommands)
+internal/           # Application packages (not importable externally)
+  constants/        # API coordinates, labels, defaults
+  config/           # Config struct, Viper priority chain
+  cluster/          # controller-runtime client init + scheme
+  cloudinit/        # Cloud-config YAML builder
+  vm/               # VM spec construction + typed CRUD + retry
+  resources/        # Namespace + Service helpers
+  wait/             # VMI readiness polling (errgroup)
+  cleanup/          # Label-based teardown (errgroup)
+  workloads/        # Workload interface, 5 implementations (cpu, memory, database, network, disk), registry
+tests/              # Integration and E2E tests
+docs/               # Documentation
+  architecture.md   # Layered architecture and mermaid diagrams
+  implementation-plan.md  # Phased build plan (11 phases)
+  development.md    # This file
+  engineering-journals/   # Per-phase development journals
+```
+
+## Architecture Layers
+
+The codebase follows a strict layered architecture where each layer depends only on layers below it. See [architecture.md](architecture.md) for full diagrams.
+
+| Layer | Packages | Goroutines | Purpose |
+|-------|----------|------------|---------|
+| 0 | `constants` | No | Pure values — API coordinates, labels, defaults |
+| 1 | `config`, `cloudinit`, `cluster` | No | Configuration, cloud-init YAML, K8s client init |
+| 2 | `vm`, `resources`, `wait` | Yes | K8s CRUD operations with retry, readiness polling |
+| 3 | `workloads` | No | Pure data producers — cloud-init specs, resource structs |
+| 4 | `cmd/virtwork`, `cleanup` | Yes | Orchestration and teardown |
+
+### Concurrency Pattern
+
+Go's native concurrency is used throughout. Parallel operations (VM creation, readiness polling, cleanup) use `errgroup.Group` for structured error handling, with `context.Context` for timeouts and cancellation.
+
+```go
+g, ctx := errgroup.WithContext(ctx)
+for _, vmName := range vmNames {
+    name := vmName
+    g.Go(func() error {
+        return vm.CreateVM(ctx, c, spec)
+    })
+}
+if err := g.Wait(); err != nil {
+    return err
+}
+```
+
+## Adding a New Workload
+
+### 1. Create the Workload Struct
+
+Create `internal/workloads/<name>.go`:
+
+```go
+package workloads
+
+type MyWorkload struct {
+    BaseWorkload
+}
+
+func NewMyWorkload(config WorkloadConfig) *MyWorkload {
+    return &MyWorkload{BaseWorkload: BaseWorkload{Config: config}}
+}
+
+func (w *MyWorkload) Name() string {
+    return "my-workload"
+}
+
+func (w *MyWorkload) CloudInitUserdata() (string, error) {
+    // Use BaseWorkload's helper to inject SSH credentials automatically
+    return w.BuildCloudConfig(cloudinit.CloudConfigOpts{
+        Packages: []string{"my-package"},
+        // ...
+    })
+}
+
+func (w *MyWorkload) VMResources() VMResourceSpec {
+    return VMResourceSpec{
+        CPUCores: w.Config.CPUCores,
+        Memory:   w.Config.Memory,
+    }
+}
+```
+
+### 2. Override Optional Methods
+
+`BaseWorkload` provides defaults via embedding. Override only what you need:
+
+| Method | Default | Override When |
+|--------|---------|---------------|
+| `ExtraVolumes()` | `nil` | VM needs additional volume mounts |
+| `ExtraDisks()` | `nil` | VM needs additional disk definitions |
+| `DataVolumeTemplates()` | `nil` | Workload needs persistent storage |
+| `RequiresService()` | `false` | VMs need a K8s Service for communication |
+| `ServiceSpec(namespace)` | `nil` | Define the Service when `RequiresService()` is true |
+| `VMCount()` | `1` | Workload needs multiple VMs (e.g., server/client) |
+
+For multi-VM workloads with per-role userdata, implement the `MultiVMWorkload` interface:
+
+```go
+func (w *MyWorkload) UserdataForRole(role string, namespace string) (string, error) {
+    switch role {
+    case "server":
+        return w.serverUserdata()
+    case "client":
+        return w.clientUserdata(namespace)
+    default:
+        return "", fmt.Errorf("unknown role: %s", role)
+    }
+}
+```
+
+### 3. Register the Workload
+
+Add the constructor to `internal/workloads/registry.go`:
+
+```go
+func DefaultRegistry() Registry {
+    return Registry{
+        "cpu":         func(c WorkloadConfig, o RegistryOpts) Workload { return NewCPUWorkload(c, o) },
+        "memory":      func(c WorkloadConfig, o RegistryOpts) Workload { return NewMemoryWorkload(c, o) },
+        "database":    func(c WorkloadConfig, o RegistryOpts) Workload { return NewDatabaseWorkload(c, o) },
+        "network":     func(c WorkloadConfig, o RegistryOpts) Workload { return NewNetworkWorkload(c, o) },
+        "disk":        func(c WorkloadConfig, o RegistryOpts) Workload { return NewDiskWorkload(c, o) },
+        "my-workload": func(c WorkloadConfig, o RegistryOpts) Workload { return NewMyWorkload(c, o) },
+    }
+}
+```
+
+**Important:** When adding a new workload, expect these ripple effects:
+- Registry tests will fail (entry count, name list assertions)
+- Orchestration BDD tests will fail (total VM count assertions)
+- Update both before considering the feature complete
+
+### 4. Write Tests
+
+Create `internal/workloads/my_workload_test.go` using Ginkgo:
+
+```go
+var _ = Describe("MyWorkload", func() {
+    var wl *MyWorkload
+
+    BeforeEach(func() {
+        wl = NewMyWorkload(WorkloadConfig{CPUCores: 2, Memory: "2Gi"})
+    })
+
+    It("should return correct name", func() {
+        Expect(wl.Name()).To(Equal("my-workload"))
+    })
+
+    It("should produce valid cloud-init YAML", func() {
+        userdata, err := wl.CloudInitUserdata()
+        Expect(err).NotTo(HaveOccurred())
+        Expect(userdata).To(HavePrefix("#cloud-config"))
+
+        var parsed map[string]interface{}
+        Expect(yaml.Unmarshal([]byte(userdata), &parsed)).To(Succeed())
+    })
+
+    It("should reflect config in VMResources", func() {
+        res := wl.VMResources()
+        Expect(res.CPUCores).To(Equal(2))
+        Expect(res.Memory).To(Equal("2Gi"))
+    })
+})
+```
+
+## SSH Credential Configuration
+
+VMs created by virtwork can be configured with SSH access for debugging and inspection.
+
+### CLI Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--ssh-user` | `virtwork` | Username for the VM user account |
+| `--ssh-password` | (none) | Password for the VM user account |
+| `--ssh-key` | (none) | Inline SSH public key (repeatable) |
+| `--ssh-key-file` | (none) | Path to SSH public key file (repeatable) |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VIRTWORK_SSH_USER` | Same as `--ssh-user` |
+| `VIRTWORK_SSH_PASSWORD` | Same as `--ssh-password` |
+| `VIRTWORK_SSH_AUTHORIZED_KEYS` | Comma-separated SSH public keys |
+
+### YAML Config
+
+```yaml
+ssh_user: virtwork
+ssh_password: testpass
+ssh_authorized_keys:
+  - ssh-rsa AAAA...
+  - ssh-ed25519 AAAA...
+```
+
+### How It Works
+
+SSH credentials are a global, cross-cutting concern applied to all VMs:
+
+1. Config layer merges SSH fields from CLI/env/YAML with standard priority chain
+2. Orchestration passes SSH credentials to the workload registry via functional options
+3. `BaseWorkload` stores SSH fields and provides `BuildCloudConfig()` helper
+4. Each workload calls `w.BuildCloudConfig(opts)` — SSH user/password/keys are injected automatically
+5. The cloud-init output includes a `users` block with the configured credentials
+
+When no SSH flags are provided, no `users` block is emitted — backward compatible with pre-SSH behavior.
+
+### Security Note
+
+SSH passwords configured via `--ssh-password` appear in two places as plaintext:
+
+1. **Process listing** — The password is visible in `ps aux` output when passed as a CLI flag. Use the `VIRTWORK_SSH_PASSWORD` environment variable or a YAML config file to avoid this.
+2. **KubeVirt VM spec** — The password appears as `plain_text_passwd` in the cloud-init userdata, which is stored in the VirtualMachine custom resource. Anyone with read access to VM objects in the namespace can see it via `oc get vm <name> -o yaml`.
+
+This is acceptable for test/lab environments. For production use, prefer SSH key-only authentication (`--ssh-key-file`) with no password.
+
+### Accessing VMs
+
+```bash
+# Via virtctl (after deploying with --ssh-key-file)
+virtctl ssh --ssh-key ~/.ssh/id_rsa virtwork@virtwork-cpu-0
+
+# Via oc (port forward then SSH)
+oc port-forward vmi/virtwork-cpu-0 2222:22
+ssh -p 2222 virtwork@localhost
+```
+
+---
+
+## Testing Patterns
+
+### YAML Assertion Pattern
+
+When testing cloud-init or any YAML output, always parse the YAML string before asserting on values:
+
+```go
+// GOOD: Parse, then assert on structure
+userdata, err := wl.CloudInitUserdata()
+Expect(err).NotTo(HaveOccurred())
+
+var parsed map[string]interface{}
+Expect(yaml.Unmarshal([]byte(userdata), &parsed)).To(Succeed())
+Expect(parsed).To(HaveKey("packages"))
+
+// BAD: Assert on raw string (fragile — key order, whitespace, line folding)
+Expect(userdata).To(ContainSubstring("packages:\n- stress-ng"))
+```
+
+### Workload Systemd Unit Pattern
+
+Each workload writes a systemd `.service` file via cloud-init `write_files`, then enables/starts it via `runcmd`. This ensures workloads survive VM reboots and can be managed with standard systemd tooling.
+
+For workloads with initialization (database), use `ExecStartPre` for setup and `ExecStart` for the main loop. For workloads with multiple configurations (disk/fio), write job files as separate `write_files` entries.
+
+---
+
+## Commit Conventions
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Prefix | Use For |
+|--------|---------|
+| `feat:` | New functionality |
+| `fix:` | Bug fixes |
+| `test:` | Test additions or changes |
+| `docs:` | Documentation only |
+| `refactor:` | Code restructuring without behavior change |
+| `chore:` | Build, tooling, or maintenance |
+
+## Idempotency and Safety
+
+- `apierrors.IsAlreadyExists()` responses are treated as success (resource already exists)
+- `apierrors.IsTooManyRequests()` and server errors trigger retry with exponential backoff
+- `apierrors.IsNotFound()` is fatal for CRUD (CNV not installed?)
+- `apierrors.IsUnauthorized()` / `apierrors.IsForbidden()` are fatal (auth errors)
+- All created resources are labeled with `app.kubernetes.io/managed-by: virtwork` for cleanup tracking
+- `--dry-run` prints specs without any cluster interaction
+- OpenShift HAProxy load balancers may drop the first TLS connection when connection pools are cold, causing transient failures on the first API call after an idle period. The retry logic (backoff on `IsTooManyRequests()` and server errors) covers this. If running against remote clusters and seeing intermittent first-call failures, this is expected behavior — the retry will succeed.

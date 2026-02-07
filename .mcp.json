@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "sequentialthinking": {
+      "type": "stdio",
+      "command": "pnpx",
+      "args": [
+        "@modelcontextprotocol/server-sequential-thinking@latest"
+      ]
+    },
+    "serena": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena-mcp-server",
+        "--context",
+        "claude-code",
+        "--project",
+        "${PWD}"
+      ]
+    },
+    "playwright": {
+      "command": "pnpx",
+      "type": "stdio",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    }
+  }
+}
