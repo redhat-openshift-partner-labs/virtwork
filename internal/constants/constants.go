@@ -1,1 +1,42 @@
 package constants
+
+import "time"
+
+// KubeVirt API coordinates.
+const (
+	KubevirtAPIGroup   = "kubevirt.io"
+	KubevirtAPIVersion = "v1"
+	KubevirtVMPlural   = "virtualmachines"
+	KubevirtVMIPlural  = "virtualmachineinstances"
+)
+
+// CDI (Containerized Data Importer) API coordinates.
+const (
+	CDIAPIGroup   = "cdi.kubevirt.io"
+	CDIAPIVersion = "v1beta1"
+	CDIDVPlural   = "datavolumes"
+)
+
+// Default resource values.
+const (
+	DefaultContainerDiskImage = "quay.io/containerdisks/fedora:41"
+	DefaultNamespace          = "virtwork"
+	DefaultCPUCores           = 2
+	DefaultMemory             = "2Gi"
+	DefaultDiskSize           = "10Gi"
+	DefaultSSHUser            = "virtwork"
+)
+
+// Kubernetes recommended labels.
+const (
+	LabelAppName   = "app.kubernetes.io/name"
+	LabelManagedBy = "app.kubernetes.io/managed-by"
+	LabelComponent = "app.kubernetes.io/component"
+	ManagedByValue = "virtwork"
+)
+
+// Polling defaults for VMI readiness.
+const (
+	DefaultReadyTimeout = 600 * time.Second
+	DefaultPollInterval = 15 * time.Second
+)
