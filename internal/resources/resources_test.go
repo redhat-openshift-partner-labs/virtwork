@@ -63,7 +63,7 @@ var _ = Describe("EnsureNamespace", func() {
 
 		labels := map[string]string{
 			"app.kubernetes.io/managed-by": "virtwork",
-			"custom-label":                "custom-value",
+			"custom-label":                 "custom-value",
 		}
 		err := resources.EnsureNamespace(ctx, c, "labeled-ns", labels)
 		Expect(err).NotTo(HaveOccurred())
