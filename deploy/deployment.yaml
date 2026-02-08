@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: virtwork
-          image: quay.io/virtwork/virtwork:latest
+          image: quay.io/opdev/virtwork:latest
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
