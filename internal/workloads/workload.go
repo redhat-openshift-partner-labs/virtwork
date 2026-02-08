@@ -107,9 +107,12 @@ func (b *BaseWorkload) ServiceSpec() *corev1.Service {
 	return nil
 }
 
-// VMCount returns 1 — single VM by default.
+// VMCount returns the configured VM count, defaulting to 1.
 func (b *BaseWorkload) VMCount() int {
-	return 1
+	if b.Config.VMCount < 1 {
+		return 1
+	}
+	return b.Config.VMCount
 }
 
 // BuildCloudConfig injects SSH credentials into the given options and delegates

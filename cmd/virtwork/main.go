@@ -148,35 +148,37 @@ func runE(cmd *cobra.Command, args []string) error {
 		vmCount := w.VMCount()
 		res := w.VMResources()
 
-		if vmCount == 1 {
+		if _, isMulti := w.(workloads.MultiVMWorkload); !isMulti {
 			userdata, err := w.CloudInitUserdata()
 			if err != nil {
 				return fmt.Errorf("generating cloud-init for %q: %w", name, err)
 			}
 
-			vmName := fmt.Sprintf("virtwork-%s-0", name)
-			plans = append(plans, vmPlan{
-				workload:  w,
-				component: name,
-				vmName:    vmName,
-				vmSpec: &vm.VMSpecOpts{
-					Name:               vmName,
-					Namespace:          cfg.Namespace,
-					ContainerDiskImage: cfg.ContainerDiskImage,
-					CloudInitUserdata:  userdata,
-					CPUCores:           res.CPUCores,
-					Memory:             res.Memory,
-					Labels: map[string]string{
-						constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
-						constants.LabelManagedBy: constants.ManagedByValue,
-						constants.LabelComponent: name,
+			for i := 0; i < vmCount; i++ {
+				vmName := fmt.Sprintf("virtwork-%s-%d", name, i)
+				plans = append(plans, vmPlan{
+					workload:  w,
+					component: name,
+					vmName:    vmName,
+					vmSpec: &vm.VMSpecOpts{
+						Name:               vmName,
+						Namespace:          cfg.Namespace,
+						ContainerDiskImage: cfg.ContainerDiskImage,
+						CloudInitUserdata:  userdata,
+						CPUCores:           res.CPUCores,
+						Memory:             res.Memory,
+						Labels: map[string]string{
+							constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
+							constants.LabelManagedBy: constants.ManagedByValue,
+							constants.LabelComponent: name,
+						},
+						ExtraDisks:          w.ExtraDisks(),
+						ExtraVolumes:        w.ExtraVolumes(),
+						DataVolumeTemplates: w.DataVolumeTemplates(),
 					},
-					ExtraDisks:          w.ExtraDisks(),
-					ExtraVolumes:        w.ExtraVolumes(),
-					DataVolumeTemplates: w.DataVolumeTemplates(),
-				},
-			})
-			vmNames = append(vmNames, vmName)
+				})
+				vmNames = append(vmNames, vmName)
+			}
 		} else {
 			// Multi-VM workload — use UserdataForRole
 			multiVM, ok := w.(workloads.MultiVMWorkload)
