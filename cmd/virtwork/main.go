@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	sigyaml "sigs.k8s.io/yaml"
 
+	"virtwork/internal/audit"
 	"virtwork/internal/cleanup"
 	"virtwork/internal/cluster"
 	"virtwork/internal/config"
@@ -45,6 +46,9 @@ realistic CPU, memory, database, network, and disk I/O metrics.`,
 	pf.String("kubeconfig", "", "Path to kubeconfig file")
 	pf.String("config", "", "Path to YAML config file")
 	pf.Bool("verbose", false, "Enable verbose output")
+	pf.Bool("audit", true, "Enable audit logging to SQLite")
+	pf.Bool("no-audit", false, "Disable audit logging")
+	pf.String("audit-db", "", "Path to audit database file")
 
 	rootCmd.AddCommand(newRunCmd(), newCleanupCmd())
 	return rootCmd
@@ -87,7 +91,23 @@ func newCleanupCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("delete-namespace", false, "Also delete the namespace")
+	cmd.Flags().String("run-id", "", "Only delete resources from this specific run (UUID)")
 	return cmd
+}
+
+// initAuditor creates the appropriate Auditor based on configuration flags.
+func initAuditor(cmd *cobra.Command, cfg *config.Config) (audit.Auditor, error) {
+	noAudit, _ := cmd.Flags().GetBool("no-audit")
+	if noAudit || !cfg.AuditEnabled {
+		return audit.NoOpAuditor{}, nil
+	}
+
+	dbPath := cfg.AuditDBPath
+	if cmd.Flags().Changed("audit-db") {
+		dbPath, _ = cmd.Flags().GetString("audit-db")
+	}
+
+	return audit.NewSQLiteAuditor(dbPath)
 }
 
 // vmPlan describes a single VM to be created during orchestration.
@@ -96,6 +116,7 @@ type vmPlan struct {
 	vmSpec    *vm.VMSpecOpts
 	vmName    string
 	component string
+	role      string
 }
 
 // runE is the main orchestration flow for the "run" subcommand.
@@ -104,6 +125,35 @@ func runE(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+
+	// Initialize auditor
+	auditor, err := initAuditor(cmd, cfg)
+	if err != nil {
+		return fmt.Errorf("initializing auditor: %w", err)
+	}
+	defer auditor.Close()
+
+	ctx := context.Background()
+
+	// Start audit execution
+	cmdName := "run"
+	if cfg.DryRun {
+		cmdName = "dry-run"
+	}
+	execID, runID, err := auditor.StartExecution(ctx, cmdName, cfg)
+	if err != nil {
+		return fmt.Errorf("starting audit execution: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = auditor.CompleteExecution(ctx, execID, "failed", err.Error())
+		}
+	}()
+
+	_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+		EventType: "execution_started",
+		Message:   fmt.Sprintf("Starting %s with run-id %s", cmdName, runID),
+	})
 
 	// Determine which workloads to deploy
 	workloadNames, _ := cmd.Flags().GetStringSlice("workloads")
@@ -119,6 +169,7 @@ func runE(cmd *cobra.Command, args []string) error {
 	// Build workload instances
 	var plans []vmPlan
 	var vmNames []string
+	auditWorkloadIDs := make(map[string]int64) // workload name -> audit workload ID
 
 	for _, name := range workloadNames {
 		wlCfg := config.WorkloadConfig{
@@ -148,6 +199,19 @@ func runE(cmd *cobra.Command, args []string) error {
 		vmCount := w.VMCount()
 		res := w.VMResources()
 
+		// Record workload in audit
+		wlID, _ := auditor.RecordWorkload(ctx, execID, audit.WorkloadRecord{
+			WorkloadType:    name,
+			Enabled:         true,
+			VMCount:         vmCount,
+			CPUCores:        res.CPUCores,
+			Memory:          res.Memory,
+			HasDataDisk:     len(w.DataVolumeTemplates()) > 0,
+			DataDiskSize:    cfg.DataDiskSize,
+			RequiresService: w.RequiresService(),
+		})
+		auditWorkloadIDs[name] = wlID
+
 		if _, isMulti := w.(workloads.MultiVMWorkload); !isMulti {
 			userdata, err := w.CloudInitUserdata()
 			if err != nil {
@@ -171,6 +235,7 @@ func runE(cmd *cobra.Command, args []string) error {
 							constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
 							constants.LabelManagedBy: constants.ManagedByValue,
 							constants.LabelComponent: name,
+							constants.LabelRunID:     runID,
 						},
 						ExtraDisks:          w.ExtraDisks(),
 						ExtraVolumes:        w.ExtraVolumes(),
@@ -200,12 +265,14 @@ func runE(cmd *cobra.Command, args []string) error {
 						constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
 						constants.LabelManagedBy: constants.ManagedByValue,
 						constants.LabelComponent: name,
+						constants.LabelRunID:     runID,
 						"virtwork/role":          role,
 					}
 					plans = append(plans, vmPlan{
 						workload:  w,
 						component: name,
 						vmName:    vmName,
+						role:      role,
 						vmSpec: &vm.VMSpecOpts{
 							Name:               vmName,
 							Namespace:          cfg.Namespace,
@@ -224,9 +291,20 @@ func runE(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Update audit with total counts
+	_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+		EventType: "execution_started",
+		Message:   fmt.Sprintf("Planned %d VMs across %d workloads", len(plans), len(workloadNames)),
+	})
+
 	// Dry-run: print specs and return
 	if cfg.DryRun {
-		return printDryRun(plans)
+		if err := printDryRun(plans); err != nil {
+			return err
+		}
+		_ = auditor.CompleteExecution(ctx, execID, "success", "")
+		err = nil // clear for defer
+		return nil
 	}
 
 	// Connect to cluster
@@ -234,8 +312,6 @@ func runE(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("connecting to cluster: %w", err)
 	}
-
-	ctx := context.Background()
 
 	// Ensure namespace exists
 	if err := resources.EnsureNamespace(ctx, c, cfg.Namespace, map[string]string{
@@ -262,11 +338,27 @@ func runE(cmd *cobra.Command, args []string) error {
 		if w.RequiresService() {
 			svc := w.ServiceSpec()
 			if svc != nil {
+				// Add run-id label to service
+				if svc.Labels == nil {
+					svc.Labels = make(map[string]string)
+				}
+				svc.Labels[constants.LabelRunID] = runID
+
 				if err := resources.CreateService(ctx, c, svc); err != nil {
 					return fmt.Errorf("creating service for %q: %w", name, err)
 				}
 				servicesCreated++
 				fmt.Fprintf(cmd.OutOrStdout(), "Service %s created\n", svc.Name)
+
+				_, _ = auditor.RecordResource(ctx, execID, audit.ResourceRecord{
+					ResourceType: "Service",
+					ResourceName: svc.Name,
+					Namespace:    svc.Namespace,
+				})
+				_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+					EventType: "service_created",
+					Message:   fmt.Sprintf("Service %s created", svc.Name),
+				})
 			}
 		}
 	}
@@ -279,6 +371,7 @@ func runE(cmd *cobra.Command, args []string) error {
 			constants.LabelAppName:   plans[i].vmSpec.Labels[constants.LabelAppName],
 			constants.LabelManagedBy: constants.ManagedByValue,
 			constants.LabelComponent: plans[i].component,
+			constants.LabelRunID:     runID,
 		}
 		if err := resources.CreateCloudInitSecret(ctx, c, secretName,
 			cfg.Namespace, plans[i].vmSpec.CloudInitUserdata, secretLabels); err != nil {
@@ -287,6 +380,12 @@ func runE(cmd *cobra.Command, args []string) error {
 		plans[i].vmSpec.CloudInitSecretName = secretName
 		secretsCreated++
 		fmt.Fprintf(cmd.OutOrStdout(), "Secret %s created\n", secretName)
+
+		_, _ = auditor.RecordResource(ctx, execID, audit.ResourceRecord{
+			ResourceType: "Secret",
+			ResourceName: secretName,
+			Namespace:    cfg.Namespace,
+		})
 	}
 
 	// Create VMs concurrently via errgroup
@@ -296,9 +395,31 @@ func runE(cmd *cobra.Command, args []string) error {
 		g.Go(func() error {
 			vmObj := vm.BuildVMSpec(*p.vmSpec)
 			if err := vm.CreateVM(gctx, c, vmObj); err != nil {
+				_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+					EventType:   "vm_failed",
+					Message:     fmt.Sprintf("Failed to create VM %s", p.vmName),
+					ErrorDetail: err.Error(),
+				})
 				return fmt.Errorf("creating VM %q: %w", p.vmName, err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "VM %s created\n", p.vmName)
+
+			wlID := auditWorkloadIDs[p.component]
+			_, _ = auditor.RecordVM(ctx, execID, wlID, audit.VMRecord{
+				VMName:             p.vmName,
+				Namespace:          cfg.Namespace,
+				Component:          p.component,
+				Role:               p.role,
+				CPUCores:           p.vmSpec.CPUCores,
+				Memory:             p.vmSpec.Memory,
+				ContainerDiskImage: p.vmSpec.ContainerDiskImage,
+				HasDataDisk:        len(p.vmSpec.DataVolumeTemplates) > 0,
+				DataDiskSize:       cfg.DataDiskSize,
+			})
+			_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+				EventType: "vm_created",
+				Message:   fmt.Sprintf("VM %s created", p.vmName),
+			})
 			return nil
 		})
 	}
@@ -319,16 +440,36 @@ func runE(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "VM %s: %v\n", name, err)
 				failures++
+				_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+					EventType:   "vm_timeout",
+					Message:     fmt.Sprintf("VM %s failed readiness check", name),
+					ErrorDetail: err.Error(),
+				})
+			} else {
+				_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+					EventType: "vm_ready",
+					Message:   fmt.Sprintf("VM %s is ready", name),
+				})
 			}
 		}
 		if failures > 0 {
-			return fmt.Errorf("%d of %d VMs failed readiness check", failures, len(vmNames))
+			err = fmt.Errorf("%d of %d VMs failed readiness check", failures, len(vmNames))
+			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "All %d VMs ready\n", len(vmNames))
 	}
 
+	// Mark all workloads as created
+	for _, wlID := range auditWorkloadIDs {
+		_ = auditor.UpdateWorkloadStatus(ctx, wlID, "created")
+	}
+
+	// Complete audit
+	_ = auditor.CompleteExecution(ctx, execID, "success", "")
+	err = nil // clear for defer
+
 	// Print summary
-	printSummary(cmd, len(plans), servicesCreated, secretsCreated, cfg)
+	printSummary(cmd, len(plans), servicesCreated, secretsCreated, cfg, runID)
 	return nil
 }
 
@@ -339,18 +480,62 @@ func cleanupE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Initialize auditor
+	auditor, err := initAuditor(cmd, cfg)
+	if err != nil {
+		return fmt.Errorf("initializing auditor: %w", err)
+	}
+	defer auditor.Close()
+
+	ctx := context.Background()
+
+	// Start audit execution
+	execID, _, err := auditor.StartExecution(ctx, "cleanup", cfg)
+	if err != nil {
+		return fmt.Errorf("starting audit execution: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = auditor.CompleteExecution(ctx, execID, "failed", err.Error())
+		}
+	}()
+
 	deleteNS, _ := cmd.Flags().GetBool("delete-namespace")
+	targetRunID, _ := cmd.Flags().GetString("run-id")
+
+	_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+		EventType: "cleanup_started",
+		Message:   fmt.Sprintf("Cleanup started (namespace: %s, run-id filter: %q)", cfg.Namespace, targetRunID),
+	})
 
 	c, err := cluster.Connect(cfg.KubeconfigPath)
 	if err != nil {
 		return fmt.Errorf("connecting to cluster: %w", err)
 	}
 
-	ctx := context.Background()
-	result, err := cleanup.CleanupAll(ctx, c, cfg.Namespace, deleteNS)
+	result, err := cleanup.CleanupAll(ctx, c, cfg.Namespace, deleteNS, targetRunID)
 	if err != nil {
 		return fmt.Errorf("cleanup failed: %w", err)
 	}
+
+	// Link cleanup to discovered run IDs
+	if len(result.RunIDs) > 0 {
+		_ = auditor.LinkCleanupToRuns(ctx, execID, result.RunIDs)
+	}
+
+	// Record cleanup counts
+	_ = auditor.RecordCleanupCounts(ctx, execID,
+		result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted, result.NamespaceDeleted)
+
+	_ = auditor.RecordEvent(ctx, execID, audit.EventRecord{
+		EventType: "cleanup_completed",
+		Message: fmt.Sprintf("Deleted %d VMs, %d services, %d secrets",
+			result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted),
+	})
+
+	// Complete audit
+	_ = auditor.CompleteExecution(ctx, execID, "success", "")
+	err = nil // clear for defer
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Cleanup complete: %d VMs deleted, %d services deleted, %d secrets deleted",
 		result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted)
@@ -388,11 +573,12 @@ func printDryRun(plans []vmPlan) error {
 }
 
 // printSummary outputs a deployment summary table.
-func printSummary(cmd *cobra.Command, vmCount, svcCount, secCount int, cfg *config.Config) {
+func printSummary(cmd *cobra.Command, vmCount, svcCount, secCount int, cfg *config.Config, runID string) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintln(out, strings.Repeat("=", 50))
 	fmt.Fprintln(out, "Deployment Summary")
 	fmt.Fprintln(out, strings.Repeat("=", 50))
+	fmt.Fprintf(out, "Run ID:       %s\n", runID)
 	fmt.Fprintf(out, "Namespace:    %s\n", cfg.Namespace)
 	fmt.Fprintf(out, "VMs created:  %d\n", vmCount)
 	fmt.Fprintf(out, "Services:     %d\n", svcCount)
