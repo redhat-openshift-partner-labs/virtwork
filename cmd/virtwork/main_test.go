@@ -540,8 +540,8 @@ var _ = Describe("Cleanup command", func() {
 		}
 
 		var buf bytes.Buffer
-		fmt.Fprintf(&buf, "Cleanup complete: %d VMs deleted, %d services deleted",
-			result.VMsDeleted, result.ServicesDeleted)
+		fmt.Fprintf(&buf, "Cleanup complete: %d VMs deleted, %d services deleted, %d secrets deleted",
+			result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted)
 		if result.NamespaceDeleted {
 			fmt.Fprintf(&buf, ", namespace deleted")
 		}
@@ -688,8 +688,8 @@ var _ = Describe("CLI end-to-end scenarios", func() {
 				ServicesDeleted:  0,
 				NamespaceDeleted: false,
 			}
-			summary := fmt.Sprintf("Cleanup complete: %d VMs deleted, %d services deleted",
-				result.VMsDeleted, result.ServicesDeleted)
+			summary := fmt.Sprintf("Cleanup complete: %d VMs deleted, %d services deleted, %d secrets deleted",
+				result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted)
 			Expect(summary).To(ContainSubstring("2 VMs deleted"))
 		})
 	})

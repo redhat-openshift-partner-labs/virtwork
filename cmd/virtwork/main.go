@@ -82,7 +82,7 @@ func newCleanupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "Delete all managed resources",
-		Long:  `Delete all VMs, services, and optionally the namespace created by virtwork.`,
+		Long:  `Delete all VMs, services, secrets, and optionally the namespace created by virtwork.`,
 		RunE:  cleanupE,
 	}
 
@@ -268,6 +268,24 @@ func runE(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Create cloud-init secrets before VMs
+	secretsCreated := 0
+	for i := range plans {
+		secretName := plans[i].vmName + "-cloudinit"
+		secretLabels := map[string]string{
+			constants.LabelAppName:   plans[i].vmSpec.Labels[constants.LabelAppName],
+			constants.LabelManagedBy: constants.ManagedByValue,
+			constants.LabelComponent: plans[i].component,
+		}
+		if err := resources.CreateCloudInitSecret(ctx, c, secretName,
+			cfg.Namespace, plans[i].vmSpec.CloudInitUserdata, secretLabels); err != nil {
+			return fmt.Errorf("creating cloud-init secret for %q: %w", plans[i].vmName, err)
+		}
+		plans[i].vmSpec.CloudInitSecretName = secretName
+		secretsCreated++
+		fmt.Fprintf(cmd.OutOrStdout(), "Secret %s created\n", secretName)
+	}
+
 	// Create VMs concurrently via errgroup
 	g, gctx := errgroup.WithContext(ctx)
 	for _, p := range plans {
@@ -307,7 +325,7 @@ func runE(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print summary
-	printSummary(cmd, len(plans), servicesCreated, cfg)
+	printSummary(cmd, len(plans), servicesCreated, secretsCreated, cfg)
 	return nil
 }
 
@@ -331,8 +349,8 @@ func cleanupE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cleanup failed: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Cleanup complete: %d VMs deleted, %d services deleted",
-		result.VMsDeleted, result.ServicesDeleted)
+	fmt.Fprintf(cmd.OutOrStdout(), "Cleanup complete: %d VMs deleted, %d services deleted, %d secrets deleted",
+		result.VMsDeleted, result.ServicesDeleted, result.SecretsDeleted)
 	if result.NamespaceDeleted {
 		fmt.Fprintf(cmd.OutOrStdout(), ", namespace deleted")
 	}
@@ -367,7 +385,7 @@ func printDryRun(plans []vmPlan) error {
 }
 
 // printSummary outputs a deployment summary table.
-func printSummary(cmd *cobra.Command, vmCount, svcCount int, cfg *config.Config) {
+func printSummary(cmd *cobra.Command, vmCount, svcCount, secCount int, cfg *config.Config) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintln(out, strings.Repeat("=", 50))
 	fmt.Fprintln(out, "Deployment Summary")
@@ -375,6 +393,7 @@ func printSummary(cmd *cobra.Command, vmCount, svcCount int, cfg *config.Config)
 	fmt.Fprintf(out, "Namespace:    %s\n", cfg.Namespace)
 	fmt.Fprintf(out, "VMs created:  %d\n", vmCount)
 	fmt.Fprintf(out, "Services:     %d\n", svcCount)
+	fmt.Fprintf(out, "Secrets:      %d\n", secCount)
 	fmt.Fprintf(out, "Image:        %s\n", cfg.ContainerDiskImage)
 	fmt.Fprintln(out, strings.Repeat("=", 50))
 }
