@@ -27,6 +27,7 @@ type VMSpecOpts struct {
 	Namespace           string
 	ContainerDiskImage  string
 	CloudInitUserdata   string
+	CloudInitSecretName string // When set, use UserDataSecretRef instead of inline
 	CPUCores            int
 	Memory              string
 	Labels              map[string]string
@@ -61,6 +62,29 @@ func BuildVMSpec(opts VMSpecOpts) *kubevirtv1.VirtualMachine {
 	}
 	disks = append(disks, opts.ExtraDisks...)
 
+	var cloudInitVolume kubevirtv1.Volume
+	if opts.CloudInitSecretName != "" {
+		cloudInitVolume = kubevirtv1.Volume{
+			Name: "cloudinitdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserDataSecretRef: &corev1.LocalObjectReference{
+						Name: opts.CloudInitSecretName,
+					},
+				},
+			},
+		}
+	} else {
+		cloudInitVolume = kubevirtv1.Volume{
+			Name: "cloudinitdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserData: opts.CloudInitUserdata,
+				},
+			},
+		}
+	}
+
 	volumes := []kubevirtv1.Volume{
 		{
 			Name: "containerdisk",
@@ -70,14 +94,7 @@ func BuildVMSpec(opts VMSpecOpts) *kubevirtv1.VirtualMachine {
 				},
 			},
 		},
-		{
-			Name: "cloudinitdisk",
-			VolumeSource: kubevirtv1.VolumeSource{
-				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-					UserData: opts.CloudInitUserdata,
-				},
-			},
-		},
+		cloudInitVolume,
 	}
 	volumes = append(volumes, opts.ExtraVolumes...)
 

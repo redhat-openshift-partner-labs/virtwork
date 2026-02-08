@@ -117,6 +117,43 @@ var _ = Describe("BuildVMSpec", func() {
 		Expect(networks[0].Pod).NotTo(BeNil())
 	})
 
+	It("should use UserDataSecretRef when CloudInitSecretName is set", func() {
+		opts.CloudInitSecretName = "my-vm-cloudinit"
+		result = vm.BuildVMSpec(opts)
+
+		volumes := result.Spec.Template.Spec.Volumes
+		var cloudInit *kubevirtv1.Volume
+		for i := range volumes {
+			if volumes[i].Name == "cloudinitdisk" {
+				cloudInit = &volumes[i]
+				break
+			}
+		}
+		Expect(cloudInit).NotTo(BeNil())
+		Expect(cloudInit.CloudInitNoCloud).NotTo(BeNil())
+		Expect(cloudInit.CloudInitNoCloud.UserDataSecretRef).NotTo(BeNil())
+		Expect(cloudInit.CloudInitNoCloud.UserDataSecretRef.Name).To(Equal("my-vm-cloudinit"))
+		Expect(cloudInit.CloudInitNoCloud.UserData).To(BeEmpty())
+	})
+
+	It("should use inline UserData when CloudInitSecretName is empty", func() {
+		opts.CloudInitSecretName = ""
+		result = vm.BuildVMSpec(opts)
+
+		volumes := result.Spec.Template.Spec.Volumes
+		var cloudInit *kubevirtv1.Volume
+		for i := range volumes {
+			if volumes[i].Name == "cloudinitdisk" {
+				cloudInit = &volumes[i]
+				break
+			}
+		}
+		Expect(cloudInit).NotTo(BeNil())
+		Expect(cloudInit.CloudInitNoCloud).NotTo(BeNil())
+		Expect(cloudInit.CloudInitNoCloud.UserData).To(Equal("#cloud-config\n"))
+		Expect(cloudInit.CloudInitNoCloud.UserDataSecretRef).To(BeNil())
+	})
+
 	It("should include extra disks when provided", func() {
 		opts.ExtraDisks = []kubevirtv1.Disk{
 			{
