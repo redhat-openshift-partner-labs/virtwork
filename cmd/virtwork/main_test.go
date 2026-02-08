@@ -476,7 +476,7 @@ var _ = Describe("Run orchestration", func() {
 				workloads.WithSSHCredentials(constants.DefaultSSHUser, "", nil),
 			)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(w.VMCount()).To(Equal(2))
+			Expect(w.VMCount()).To(Equal(4)) // VMCount=2 → 2 servers + 2 clients
 
 			multiVM, ok := w.(workloads.MultiVMWorkload)
 			Expect(ok).To(BeTrue())

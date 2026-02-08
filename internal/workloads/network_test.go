@@ -27,8 +27,8 @@ var _ = Describe("NetworkWorkload", func() {
 		Expect(w.Name()).To(Equal("network"))
 	})
 
-	It("should return 2 for VMCount", func() {
-		Expect(w.VMCount()).To(Equal(2))
+	It("should return 2x VMCount for server/client pairs", func() {
+		Expect(w.VMCount()).To(Equal(4)) // VMCount=2 config → 2 servers + 2 clients
 	})
 
 	It("should require service", func() {

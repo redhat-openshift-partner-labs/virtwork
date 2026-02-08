@@ -187,36 +187,39 @@ func runE(cmd *cobra.Command, args []string) error {
 			}
 
 			roles := []string{"server", "client"}
-			for i, role := range roles {
+			perRole := vmCount / len(roles)
+			for _, role := range roles {
 				userdata, err := multiVM.UserdataForRole(role, cfg.Namespace)
 				if err != nil {
 					return fmt.Errorf("generating cloud-init for %q role %q: %w", name, role, err)
 				}
 
-				vmName := fmt.Sprintf("virtwork-%s-%s-%d", name, role, i)
-				labels := map[string]string{
-					constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
-					constants.LabelManagedBy: constants.ManagedByValue,
-					constants.LabelComponent: name,
-					"virtwork/role":          role,
+				for i := 0; i < perRole; i++ {
+					vmName := fmt.Sprintf("virtwork-%s-%s-%d", name, role, i)
+					labels := map[string]string{
+						constants.LabelAppName:   fmt.Sprintf("virtwork-%s", name),
+						constants.LabelManagedBy: constants.ManagedByValue,
+						constants.LabelComponent: name,
+						"virtwork/role":          role,
+					}
+					plans = append(plans, vmPlan{
+						workload:  w,
+						component: name,
+						vmName:    vmName,
+						vmSpec: &vm.VMSpecOpts{
+							Name:               vmName,
+							Namespace:          cfg.Namespace,
+							ContainerDiskImage: cfg.ContainerDiskImage,
+							CloudInitUserdata:  userdata,
+							CPUCores:           res.CPUCores,
+							Memory:             res.Memory,
+							Labels:             labels,
+							ExtraDisks:         w.ExtraDisks(),
+							ExtraVolumes:       w.ExtraVolumes(),
+						},
+					})
+					vmNames = append(vmNames, vmName)
 				}
-				plans = append(plans, vmPlan{
-					workload:  w,
-					component: name,
-					vmName:    vmName,
-					vmSpec: &vm.VMSpecOpts{
-						Name:               vmName,
-						Namespace:          cfg.Namespace,
-						ContainerDiskImage: cfg.ContainerDiskImage,
-						CloudInitUserdata:  userdata,
-						CPUCores:           res.CPUCores,
-						Memory:             res.Memory,
-						Labels:             labels,
-						ExtraDisks:         w.ExtraDisks(),
-						ExtraVolumes:       w.ExtraVolumes(),
-					},
-				})
-				vmNames = append(vmNames, vmName)
 			}
 		}
 	}

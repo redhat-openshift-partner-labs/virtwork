@@ -55,9 +55,14 @@ func (w *NetworkWorkload) Name() string {
 	return "network"
 }
 
-// VMCount returns 2 — one server and one client.
+// VMCount returns the total VM count — one server and one client per
+// configured vm-count.
 func (w *NetworkWorkload) VMCount() int {
-	return 2
+	count := w.Config.VMCount
+	if count < 1 {
+		count = 1
+	}
+	return count * 2
 }
 
 // RequiresService returns true — the client needs a ClusterIP Service to reach
