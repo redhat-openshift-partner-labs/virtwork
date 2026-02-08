@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestMain(t *testing.T) {
+func TestMainSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Main Suite")
 }
