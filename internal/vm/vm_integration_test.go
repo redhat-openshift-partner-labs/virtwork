@@ -7,6 +7,7 @@ package vm_test
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -95,9 +96,12 @@ var _ = Describe("DeleteVM [integration]", func() {
 		err := vm.DeleteVM(ctx, c, "integ-vm-del", namespace)
 		Expect(err).NotTo(HaveOccurred())
 
-		vms, err := vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(vms).To(BeEmpty())
+		// KubeVirt finalizers keep the VM in Terminating state briefly.
+		Eventually(func() int {
+			vms, err := vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
+			Expect(err).NotTo(HaveOccurred())
+			return len(vms)
+		}, 60*time.Second, 2*time.Second).Should(Equal(0))
 	})
 
 	It("should be idempotent for nonexistent VMs", func() {
