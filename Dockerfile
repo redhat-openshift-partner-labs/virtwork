@@ -22,10 +22,10 @@ RUN CGO_ENABLED=1 go build -o virtwork ./cmd/virtwork
 # Stage 2: Runtime image
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
-LABEL io.k8s.display-name="Virtwork" \
+LABEL io.k8s.display-name="virtwork" \
       io.k8s.description="Creates virtual machines on OpenShift with continuous workloads for metrics generation" \
       io.openshift.tags="virtwork,kubevirt,openshift,workload-generator" \
-      summary="Virtwork workload generator for OpenShift Virtualization" \
+      summary="virtwork workload generator for OpenShift Virtualization" \
       description="CLI tool that creates VMs on OpenShift clusters with KubeVirt and runs continuous CPU, memory, database, network, and disk I/O workloads" \
       name="virtwork"
 
