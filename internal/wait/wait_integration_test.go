@@ -13,10 +13,10 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/resources"
-	"virtwork/internal/testutil"
-	"virtwork/internal/vm"
-	"virtwork/internal/wait"
+	"github.com/opdev/virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/wait"
 )
 
 var _ = Describe("WaitForVMReady [integration]", Label("slow"), func() {

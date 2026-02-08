@@ -11,7 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/testutil"
 )
 
 func TestE2E(t *testing.T) {

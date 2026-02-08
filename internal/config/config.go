@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/constants"
 )
 
 // WorkloadConfig holds per-workload configuration.

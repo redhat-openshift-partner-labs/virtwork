@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/constants"
-	"virtwork/internal/resources"
-	"virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/testutil"
 )
 
 var _ = Describe("EnsureNamespace [integration]", func() {

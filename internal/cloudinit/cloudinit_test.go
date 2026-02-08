@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v3"
 
-	"virtwork/internal/cloudinit"
+	"github.com/opdev/virtwork/internal/cloudinit"
 )
 
 var _ = Describe("BuildCloudConfig", func() {

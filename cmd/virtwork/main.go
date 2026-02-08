@@ -14,15 +14,15 @@ import (
 	"golang.org/x/sync/errgroup"
 	sigyaml "sigs.k8s.io/yaml"
 
-	"virtwork/internal/audit"
-	"virtwork/internal/cleanup"
-	"virtwork/internal/cluster"
-	"virtwork/internal/config"
-	"virtwork/internal/constants"
-	"virtwork/internal/resources"
-	"virtwork/internal/vm"
-	"virtwork/internal/wait"
-	"virtwork/internal/workloads"
+	"github.com/opdev/virtwork/internal/audit"
+	"github.com/opdev/virtwork/internal/cleanup"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/wait"
+	"github.com/opdev/virtwork/internal/workloads"
 )
 
 func main() {

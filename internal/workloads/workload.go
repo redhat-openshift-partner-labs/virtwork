@@ -7,8 +7,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
-	"virtwork/internal/cloudinit"
-	"virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/cloudinit"
+	"github.com/opdev/virtwork/internal/config"
 )
 
 // CloudConfigOpts is re-exported from cloudinit for convenience.

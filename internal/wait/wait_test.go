@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"virtwork/internal/cluster"
-	"virtwork/internal/wait"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/wait"
 )
 
 var _ = Describe("WaitForVMReady", func() {

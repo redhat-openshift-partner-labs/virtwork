@@ -19,10 +19,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/cleanup"
-	"virtwork/internal/cluster"
-	"virtwork/internal/constants"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/cleanup"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 // UniqueNamespace returns a namespace name like "virtwork-test-<prefix>-<random>"

@@ -7,8 +7,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/config"
-	"virtwork/internal/workloads"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/workloads"
 )
 
 var _ = Describe("BaseWorkload", func() {

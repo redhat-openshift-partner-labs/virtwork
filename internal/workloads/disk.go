@@ -6,8 +6,8 @@ package workloads
 import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
-	"virtwork/internal/config"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 const fioMixedRWProfile = `[global]

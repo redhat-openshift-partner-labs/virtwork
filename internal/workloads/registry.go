@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"virtwork/internal/config"
-	"virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/constants"
 )
 
 // RegistryOpts holds optional parameters for workload construction.

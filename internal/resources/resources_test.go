@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"virtwork/internal/cluster"
-	"virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/resources"
 )
 
 var _ = Describe("EnsureNamespace", func() {

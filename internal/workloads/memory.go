@@ -4,7 +4,7 @@
 package workloads
 
 import (
-	"virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/config"
 )
 
 const memorySystemdUnit = `[Unit]

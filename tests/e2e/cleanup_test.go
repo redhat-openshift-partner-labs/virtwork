@@ -12,8 +12,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/testutil"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 var _ = Describe("virtwork cleanup", Label("slow"), func() {

@@ -14,8 +14,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/testutil"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 var _ = Describe("Full deployment cycle", Label("slow"), func() {

@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/config"
 )
 
 const iperf3ServerSystemdUnit = `[Unit]

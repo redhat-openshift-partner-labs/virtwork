@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/testutil"
 )
 
 var _ = Describe("virtwork run", Label("slow"), func() {

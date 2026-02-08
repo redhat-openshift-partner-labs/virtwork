@@ -17,10 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"virtwork/internal/cleanup"
-	"virtwork/internal/cluster"
-	"virtwork/internal/constants"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/cleanup"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 var _ = Describe("CleanupAll", func() {

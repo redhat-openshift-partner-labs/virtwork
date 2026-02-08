@@ -12,8 +12,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/audit"
-	"virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/audit"
+	"github.com/opdev/virtwork/internal/config"
 )
 
 var _ = Describe("SQLiteAuditor", func() {

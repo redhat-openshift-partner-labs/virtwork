@@ -19,14 +19,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"virtwork/internal/cleanup"
-	"virtwork/internal/cluster"
-	"virtwork/internal/config"
-	"virtwork/internal/constants"
-	"virtwork/internal/resources"
-	"virtwork/internal/vm"
-	"virtwork/internal/wait"
-	"virtwork/internal/workloads"
+	"github.com/opdev/virtwork/internal/cleanup"
+	"github.com/opdev/virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/wait"
+	"github.com/opdev/virtwork/internal/workloads"
 )
 
 // newRootCmd builds a fresh command tree for testing. This mirrors the production

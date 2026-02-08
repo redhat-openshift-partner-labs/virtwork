@@ -11,8 +11,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/spf13/cobra"
 
-	"virtwork/internal/config"
-	"virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/constants"
 )
 
 func newTestCommand() *cobra.Command {

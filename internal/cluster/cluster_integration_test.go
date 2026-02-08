@@ -15,7 +15,7 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/cluster"
+	"github.com/opdev/virtwork/internal/cluster"
 )
 
 // kubeconfigPath returns the KUBECONFIG env var value, allowing the

@@ -15,10 +15,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/cleanup"
-	"virtwork/internal/resources"
-	"virtwork/internal/testutil"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/cleanup"
+	"github.com/opdev/virtwork/internal/resources"
+	"github.com/opdev/virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 var _ = Describe("CleanupAll [integration]", func() {

@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/constants"
 )
 
 var _ = Describe("Constants", func() {

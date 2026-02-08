@@ -13,7 +13,7 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/constants"
 )
 
 // CleanupResult summarises the outcome of a cleanup operation.

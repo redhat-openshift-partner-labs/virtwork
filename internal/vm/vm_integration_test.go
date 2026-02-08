@@ -13,9 +13,9 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"virtwork/internal/constants"
-	"virtwork/internal/testutil"
-	"virtwork/internal/vm"
+	"github.com/opdev/virtwork/internal/constants"
+	"github.com/opdev/virtwork/internal/testutil"
+	"github.com/opdev/virtwork/internal/vm"
 )
 
 var _ = Describe("CreateVM [integration]", func() {

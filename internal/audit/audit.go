@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 
-	"virtwork/internal/config"
+	"github.com/opdev/virtwork/internal/config"
 )
 
 // Auditor defines the contract for recording execution audit data.
