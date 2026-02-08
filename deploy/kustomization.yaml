@@ -12,6 +12,8 @@ resources:
   - pvc.yaml
   - deployment.yaml
 
-commonLabels:
-  app.kubernetes.io/name: virtwork
-  app.kubernetes.io/managed-by: virtwork
+labels:
+  - pairs:
+      app.kubernetes.io/name: virtwork
+      app.kubernetes.io/managed-by: virtwork
+    includeSelectors: false
