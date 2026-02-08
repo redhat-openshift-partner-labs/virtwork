@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+claude-logs
+docs/engineering-journals
+
+*install-config.yaml
+*kubeconfig.yaml
+*ssl.yaml
+
+.idea
+.mcp.json
+htpasswd
+
+# IDE
+.idea/
+
+# Claude logs
+claude-logs/
+
+# Binaries
+/virtwork
+*.exe
+
+# OS
+.DS_Store
