@@ -17,6 +17,7 @@ graph TD
     subgraph "Layer 4 — Orchestration"
         CMD["cmd/virtwork/main.go\nCobra commands + orchestration"]
         CLEANUP["internal/cleanup/cleanup.go\nlabel-based teardown\n(VMs, Services, Secrets)"]
+        AUDIT["internal/audit/audit.go\nSQLite audit tracking"]
     end
 
     subgraph "Layer 3 — Workload Definitions"
@@ -52,6 +53,10 @@ graph TD
     CMD --> RES
     CMD --> WAIT
     CMD --> CLEANUP
+    CMD --> AUDIT
+
+    AUDIT --> CONFIG
+    AUDIT --> CONST
 
     CLEANUP --> VM
     CLEANUP --> RES
@@ -150,6 +155,7 @@ graph LR
 | `internal/wait` | Yes | Concurrent VMI polling via errgroup; uses `time.Sleep` between polls |
 | `internal/workloads` | No | Pure data producers (cloud-init specs, resource structs) |
 | `internal/cleanup` | No | Sequential VM/Service/Secret deletion with error accumulation |
+| `internal/audit` | No | Sequential SQLite writes via `database/sql` connection pool |
 | `cmd/virtwork` | Yes | Owns errgroup lifecycle; spawns goroutines for parallel operations |
 
 ---
@@ -159,7 +165,9 @@ graph LR
 ```mermaid
 flowchart TD
     START([virtwork run]) --> LOAD_CFG[Load config via Viper\nflags > env > file > defaults]
-    LOAD_CFG --> DRY_CHECK{--dry-run?}
+    LOAD_CFG --> INIT_AUDIT[Init Auditor\nSQLiteAuditor or NoOpAuditor]
+    INIT_AUDIT --> START_EXEC[StartExecution\ngenerate run UUID]
+    START_EXEC --> DRY_CHECK{--dry-run?}
 
     DRY_CHECK -->|Yes| GEN_SPECS[Generate VM specs\nfor each workload]
     GEN_SPECS --> PRINT_YAML[Print specs as YAML]
@@ -183,16 +191,22 @@ flowchart TD
     ERRGRP_WAIT --> WAIT_CHECK{--no-wait?}
     WAIT_CHECK -->|Yes| PRINT_SUMMARY[Print summary table]
     WAIT_CHECK -->|No| POLL[WaitForAllVMsReady\nerrgroup for concurrent polling]
-    POLL --> PRINT_SUMMARY
+    POLL --> COMPLETE_EXEC[CompleteExecution\nset status + timestamp]
+    COMPLETE_EXEC --> PRINT_SUMMARY
     PRINT_SUMMARY --> EXIT([Exit])
 ```
 
 ```mermaid
 flowchart TD
     START_C([virtwork cleanup]) --> LOAD_CFG_C[Load config via Viper]
-    LOAD_CFG_C --> CONNECT_C[Connect to cluster]
-    CONNECT_C --> DO_CLEANUP[CleanupAll\ndelete labeled VMs + Services]
-    DO_CLEANUP --> PRINT_SUMMARY_C[Print cleanup summary]
+    LOAD_CFG_C --> INIT_AUDIT_C[Init Auditor\nSQLiteAuditor or NoOpAuditor]
+    INIT_AUDIT_C --> START_EXEC_C[StartExecution\ngenerate cleanup run UUID]
+    START_EXEC_C --> CONNECT_C[Connect to cluster]
+    CONNECT_C --> DO_CLEANUP[CleanupAll\ndelete labeled VMs + Services\ncollect run IDs from resources]
+    DO_CLEANUP --> LINK_RUNS[LinkCleanupToRuns\nstore collected run IDs as JSON array]
+    LINK_RUNS --> RECORD_COUNTS[RecordCleanupCounts\nVMs, Services, Secrets deleted]
+    RECORD_COUNTS --> COMPLETE_C[CompleteExecution\nset status + timestamp]
+    COMPLETE_C --> PRINT_SUMMARY_C[Print cleanup summary]
     PRINT_SUMMARY_C --> EXIT_C([Exit])
 ```
 
@@ -292,24 +306,28 @@ classDiagram
 
 ## Resource Tracking and Cleanup
 
-All created resources are labeled with `app.kubernetes.io/managed-by: virtwork`. Cleanup queries by label selector — no state file needed. This is resilient to crashes (works even if the tool terminated mid-creation).
+All created resources are labeled with `app.kubernetes.io/managed-by: virtwork` and `virtwork/run-id: <uuid>`. Cleanup queries by label selector — no state file needed. This is resilient to crashes (works even if the tool terminated mid-creation).
+
+Each `virtwork run` generates a UUID applied as the `virtwork/run-id` label to all resources it creates. During cleanup, these labels enable:
+- **Targeted cleanup:** `virtwork cleanup --run-id <uuid>` deletes only resources from that specific run
+- **Cleanup-all:** `virtwork cleanup` (no UUID) deletes all managed resources and collects unique run IDs from the resources into a JSON array for audit linking
 
 ```mermaid
 flowchart LR
-    subgraph "Create"
-        VM1["VM: virtwork-cpu-0\nlabels: managed-by=virtwork"]
-        VM2["VM: virtwork-disk-0\nlabels: managed-by=virtwork"]
-        SVC["Service: virtwork-iperf3-server\nlabels: managed-by=virtwork"]
-        SEC["Secret: virtwork-cpu-0-cloudinit\nlabels: managed-by=virtwork"]
+    subgraph "Create (with run UUID)"
+        VM1["VM: virtwork-cpu-0\nlabels: managed-by=virtwork\nvirtwork/run-id=abc123"]
+        VM2["VM: virtwork-disk-0\nlabels: managed-by=virtwork\nvirtwork/run-id=abc123"]
+        SVC["Service: virtwork-iperf3-server\nlabels: managed-by=virtwork\nvirtwork/run-id=abc123"]
+        SEC["Secret: virtwork-cpu-0-cloudinit\nlabels: managed-by=virtwork\nvirtwork/run-id=abc123"]
         NS["Namespace: virtwork"]
     end
 
     subgraph "Cleanup Query"
-        SEL["client.MatchingLabels\nmanaged-by=virtwork"]
+        SEL["client.MatchingLabels\nmanaged-by=virtwork\n(+ optional run-id filter)"]
     end
 
-    subgraph "Delete"
-        DEL["client.Delete each matched resource\nerrors logged, not fatal"]
+    subgraph "Delete + Audit"
+        DEL["client.Delete each matched resource\nerrors logged, not fatal\ncollect unique run IDs"]
     end
 
     SEL --> VM1
@@ -389,6 +407,9 @@ Viper's built-in priority chain handles this natively when bound to Cobra flags:
 | Network VM scaling | `VMCount() = count * 2` | Honors `--vm-count` to create N server/client pairs instead of a single hardcoded pair. |
 | Cloud-init Secrets | `CloudInitSecretName` → `UserDataSecretRef` | For large userdata, stores cloud-init in a K8s Secret instead of inline in the VM spec. |
 | Cleanup error semantics | Sequential per-resource deletion with error accumulation | Different from create-time error handling (which is fail-fast). Cleanup continues on individual failures. |
+| Audit storage | SQLite (`virtwork.db`) with `Auditor` interface | Local file, zero infrastructure. `NoOpAuditor` when disabled. WAL mode for concurrent safety. |
+| Run-to-cleanup linking | `virtwork/run-id` K8s label + `linked_run_ids` JSON array | Labels survive across CLI invocations. JSON array is PostgreSQL JSONB compatible. |
+| Audit credential policy | No SSH credentials stored | Only `ssh_auth_configured` boolean tracked. Security by design. |
 
 ---
 
@@ -416,6 +437,10 @@ virtwork/
 │   │   └── wait.go                # VMI readiness polling (errgroup)
 │   ├── cleanup/
 │   │   └── cleanup.go             # Label-based teardown (VMs, Services, Secrets)
+│   ├── audit/
+│   │   ├── audit.go               # Auditor interface, SQLiteAuditor, NoOpAuditor
+│   │   ├── schema.go              # DDL for 5 audit tables + indexes
+│   │   └── records.go             # WorkloadRecord, VMRecord, ResourceRecord, EventRecord
 │   ├── workloads/
 │   │   ├── workload.go            # Workload interface + BaseWorkload
 │   │   ├── registry.go            # Registry map + lookup

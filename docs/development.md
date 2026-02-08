@@ -167,6 +167,7 @@ internal/           # Application packages (not importable externally)
   resources/        # Namespace + Service + Secret helpers
   wait/             # VMI readiness polling (errgroup)
   cleanup/          # Label-based teardown (VMs, Services, Secrets)
+  audit/            # SQLite audit tracking (Auditor interface, schema, records)
   workloads/        # Workload interface, 5 implementations, registry
   testutil/         # Shared test helpers for integration and E2E tests
 tests/              # Tests requiring external infrastructure
@@ -188,7 +189,7 @@ The codebase follows a strict layered architecture where each layer depends only
 | 1 | `config`, `cloudinit`, `cluster` | No | Configuration, cloud-init YAML, K8s client init |
 | 2 | `vm`, `resources`, `wait` | Yes | K8s CRUD operations with retry, readiness polling |
 | 3 | `workloads` | No | Pure data producers — cloud-init specs, resource structs |
-| 4 | `cmd/virtwork`, `cleanup` | Yes | Orchestration and teardown |
+| 4 | `cmd/virtwork`, `cleanup`, `audit` | Yes | Orchestration, teardown, and audit tracking |
 
 ### Concurrency Pattern
 
@@ -367,6 +368,51 @@ SSH credentials are a global, cross-cutting concern applied to all VMs:
 5. The cloud-init output includes a `users` block with the configured credentials
 
 When no SSH flags are provided, no `users` block is emitted — backward compatible with pre-SSH behavior.
+
+## Audit Configuration
+
+Every execution is tracked in a local SQLite database for operational visibility and compliance auditing.
+
+### CLI Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--audit` | `true` | Enable audit tracking (persistent flag) |
+| `--no-audit` | — | Disable audit tracking |
+| `--audit-db` | `virtwork.db` | Path to SQLite audit database file (persistent flag) |
+| `--run-id` | (none) | Target a specific run for cleanup (cleanup command only) |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VIRTWORK_AUDIT` | Same as `--audit` (true/false) |
+| `VIRTWORK_AUDIT_DB` | Same as `--audit-db` |
+
+### How It Works
+
+1. Each `virtwork run` or `virtwork cleanup` generates a UUID
+2. The UUID is applied as a `virtwork/run-id` label on all K8s resources
+3. An `audit_log` row records execution parameters, timestamps, and outcome
+4. Detailed records are written to `workload_details`, `vm_details`, `resource_details`, and `events` tables
+5. During cleanup, `virtwork/run-id` labels are collected from resources and stored as a JSON array in `linked_run_ids`
+6. No SSH credentials are stored — only a `ssh_auth_configured` boolean
+
+### Querying the Audit Database
+
+```bash
+# Recent executions
+sqlite3 virtwork.db "SELECT id, run_id, command, status, started_at FROM audit_log ORDER BY id DESC LIMIT 10;"
+
+# VMs created in a specific run
+sqlite3 virtwork.db "SELECT vm_name, component, cpu_cores, memory, status FROM vm_details WHERE audit_id = 1;"
+
+# Events timeline
+sqlite3 virtwork.db "SELECT event_type, message, occurred_at FROM events WHERE audit_id = 1 ORDER BY occurred_at;"
+
+# Find cleanups that affected a specific run
+sqlite3 virtwork.db "SELECT * FROM audit_log WHERE command = 'cleanup' AND linked_run_ids LIKE '%<run-uuid>%';"
+```
 
 ### Security Note
 

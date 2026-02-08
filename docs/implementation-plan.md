@@ -20,7 +20,8 @@ This document breaks the [design plan](openshift-virtualization-workload-automat
 | 9 | 4 | `internal/cleanup` | 7-10 | Yes |
 | 10 | 4 | `cmd/virtwork` (Cobra CLI + orchestration) | 22-25 + BDD | Yes |
 | 11 | — | Integration tests (alongside source) + E2E tests (`tests/e2e/`) | ~51 | Yes |
-| **Total** | | **11 packages + testutil + e2e** | **~206 tests** | |
+| 12 | 4 | `internal/audit` (SQLite audit tracking) | 14 | No |
+| **Total** | | **12 packages + testutil + e2e** | **~220 tests** | |
 
 **Note:** Test counts increased from the initial estimate to account for SSH credential support (cloud-init users block, config fields, CLI flags) and the memory workload. These are lessons from the Python implementation experience that revealed the true scope.
 
@@ -803,6 +804,8 @@ Describe("CLI end-to-end scenarios", func() {
 | `kubevirt.io/api` | KubeVirt VirtualMachine/VirtualMachineInstance types |
 | `kubevirt.io/containerized-data-importer-api` | CDI DataVolume types |
 | `golang.org/x/sync` | `errgroup` for structured concurrent operations |
+| `github.com/mattn/go-sqlite3` | CGo SQLite3 driver for audit database |
+| `github.com/google/uuid` | UUID generation for run ID labels |
 
 ### Development
 
@@ -907,6 +910,90 @@ go test -tags "integration e2e" ./...
 - `test: add integration tests for cluster, resources, vm, wait, cleanup`
 - `test: add E2E test suite with dry-run, run, cleanup, and full-cycle scenarios`
 - `docs: add integration and E2E test documentation`
+
+---
+
+## Phase 12: Audit System
+
+**Goal:** Add SQLite-based audit tracking for all executions. Every `run` and `cleanup` gets a database record with timestamps, configuration, and outcome details.
+
+### Files Created
+
+**`internal/audit/schema.go`**
+- DDL for 5 tables: `audit_log`, `workload_details`, `vm_details`, `resource_details`, `events`
+- Indexes on foreign keys and common query columns
+- Foreign key constraints between all detail tables and `audit_log`
+
+**`internal/audit/records.go`**
+- `WorkloadRecord`, `VMRecord`, `ResourceRecord`, `EventRecord` structs
+- Data transfer objects for audit operations
+
+**`internal/audit/audit.go`**
+- `Auditor` interface with 13 methods covering full execution lifecycle
+- `SQLiteAuditor` implementation with WAL mode and foreign key enforcement
+- `NoOpAuditor` for when audit is disabled
+- `NewAuditor(dbPath)` constructor, `NewNoOpAuditor()` constructor
+
+**`internal/audit/audit_suite_test.go`** — Ginkgo bootstrap
+**`internal/audit/audit_test.go`** — 14 tests covering:
+- Schema creation (tables + indexes)
+- Full execution lifecycle (start → workloads → VMs → events → complete)
+- Failure with error summary
+- Cleanup linking (single and multi-run)
+- Cleanup counts recording
+- VM and resource deletion tracking
+- Events with FK references
+- Concurrent writes (20 goroutines)
+- SSH auth boolean tracking
+- NoOpAuditor does nothing without error
+
+### Files Modified
+
+**`internal/constants/constants.go`**
+- Added `LabelRunID = "virtwork/run-id"` for run-to-cleanup linking
+- Added `DefaultAuditDBPath = "virtwork.db"`
+
+**`internal/config/config.go`**
+- Added `AuditEnabled` (bool, default: true) and `AuditDBPath` (string, default: `virtwork.db`)
+- Viper defaults and LoadConfig wiring
+
+**`internal/cleanup/cleanup.go`**
+- Added `runID string` parameter to `CleanupAll` for targeted cleanup
+- Added `RunIDs []string` field to `CleanupResult`
+- Added `collectRunID()` helper to extract `virtwork/run-id` from resource labels
+- When `runID` is provided, adds it to label selector; otherwise collects all unique run IDs
+
+**`cmd/virtwork/main.go`**
+- Added `--audit`/`--no-audit`/`--audit-db` persistent flags
+- Added `--run-id` flag on cleanup command
+- Run flow: generates UUID, applies `virtwork/run-id` label, records audit events at each step
+- Cleanup flow: uses `--run-id` for targeted deletion, links collected run IDs to audit record
+
+**`.gitignore`** — Added `virtwork.db`
+
+### Key Design Decisions
+
+- **`Auditor` interface + `NoOpAuditor`:** Avoids nil checks throughout codebase when audit is disabled
+- **WAL journal mode:** Allows concurrent reads during writes
+- **Shared cache for `:memory:` tests:** `file::memory:?mode=memory&cache=shared` ensures all connections in the pool see the same database
+- **JSON array for `linked_run_ids`:** Supports cleanup-all (multiple runs) while remaining PostgreSQL JSONB compatible
+- **No SSH credentials stored:** Security by design — only a boolean `ssh_auth_configured`
+
+### Verification
+
+- `go test ./internal/audit/...` — 14 tests pass
+- `go test ./...` — full suite passes (no regressions)
+- `go vet ./...` — clean
+
+### Commits
+
+- `feat: add run-id label and audit DB path constants`
+- `feat: add audit config fields (AuditEnabled, AuditDBPath)`
+- `feat: add SQLite audit system with 5-table schema`
+- `feat: add run-id label and targeted cleanup support`
+- `feat: integrate audit tracking into CLI orchestration`
+- `chore: add virtwork.db to .gitignore`
+- `test: verify all tests pass after audit integration`
 
 ---
 
