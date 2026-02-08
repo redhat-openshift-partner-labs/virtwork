@@ -16,7 +16,7 @@ The codebase is organized into five dependency layers. Each layer depends only o
 graph TD
     subgraph "Layer 4 — Orchestration"
         CMD["cmd/virtwork/main.go\nCobra commands + orchestration"]
-        CLEANUP["internal/cleanup/cleanup.go\nlabel-based teardown"]
+        CLEANUP["internal/cleanup/cleanup.go\nlabel-based teardown\n(VMs, Services, Secrets)"]
     end
 
     subgraph "Layer 3 — Workload Definitions"
@@ -31,7 +31,7 @@ graph TD
 
     subgraph "Layer 2 — K8s Abstractions"
         VM["internal/vm/vm.go\nVM spec CRUD + retry"]
-        RES["internal/resources/resources.go\nnamespace + service"]
+        RES["internal/resources/resources.go\nnamespace + service + secret"]
         WAIT["internal/wait/wait.go\nVMI readiness polling"]
     end
 
@@ -146,10 +146,10 @@ graph LR
 | `internal/cloudinit` | No | Pure string/YAML generation |
 | `internal/cluster` | No | One-time client init at startup |
 | `internal/vm` | Yes | CRUD operations run in errgroup goroutines; retry loops use `time.Sleep` |
-| `internal/resources` | Yes | Namespace/Service creation can run concurrently |
+| `internal/resources` | Yes | Namespace/Service/Secret creation can run concurrently |
 | `internal/wait` | Yes | Concurrent VMI polling via errgroup; uses `time.Sleep` between polls |
 | `internal/workloads` | No | Pure data producers (cloud-init specs, resource structs) |
-| `internal/cleanup` | Yes | Parallel VM/Service deletion via errgroup |
+| `internal/cleanup` | No | Sequential VM/Service/Secret deletion with error accumulation |
 | `cmd/virtwork` | Yes | Owns errgroup lifecycle; spawns goroutines for parallel operations |
 
 ---
@@ -213,21 +213,22 @@ classDiagram
         +ExtraDisks() []Disk
         +DataVolumeTemplates() []DataVolumeTemplateSpec
         +RequiresService() bool
-        +ServiceSpec(namespace) *Service
+        +ServiceSpec() *Service
         +VMCount() int
     }
 
     class BaseWorkload {
         +Config WorkloadConfig
-        -SSHUser string
-        -SSHPassword string
-        -SSHAuthorizedKeys []string
+        +SSHUser string
+        +SSHPassword string
+        +SSHAuthorizedKeys []string
+        +VMResources() VMResourceSpec
         +ExtraVolumes() []Volume
         +ExtraDisks() []Disk
         +DataVolumeTemplates() []DataVolumeTemplateSpec
         +RequiresService() false
         +ServiceSpec() nil
-        +VMCount() 1
+        +VMCount() int (Config.VMCount or 1)
         +BuildCloudConfig(opts) (string, error)
     }
 
@@ -250,8 +251,9 @@ classDiagram
     }
 
     class NetworkWorkload {
+        +Namespace string
         +Name() "network"
-        +VMCount() 2
+        +VMCount() count * 2 (server+client pairs)
         +RequiresService() true
         +ServerUserdata() iperf3 -s
         +ClientUserdata() iperf3 -c
@@ -283,7 +285,7 @@ classDiagram
 | CPU | N (configurable) | No | No | stress-ng | `stress-ng --cpu 0 --cpu-method all` |
 | Memory | N (configurable) | No | No | stress-ng | `stress-ng --vm 1 --vm-bytes 80% --vm-method all` |
 | Database | N (configurable) | Yes (`/var/lib/pgsql/data`) | No | postgresql-server | `pgbench -c 10 -j 2 -T 300` loop |
-| Network | 2 (server + client) | No | Yes (ClusterIP) | iperf3 | `iperf3 -s` / `iperf3 -c ... --bidir` |
+| Network | N×2 (server + client pairs) | No | Yes (ClusterIP) | iperf3 | `iperf3 -s` / `iperf3 -c ... --bidir` |
 | Disk | N (configurable) | Yes (`/mnt/data`) | No | fio | Mixed R/W + sequential write profiles |
 
 ---
@@ -298,6 +300,7 @@ flowchart LR
         VM1["VM: virtwork-cpu-0\nlabels: managed-by=virtwork"]
         VM2["VM: virtwork-disk-0\nlabels: managed-by=virtwork"]
         SVC["Service: virtwork-iperf3-server\nlabels: managed-by=virtwork"]
+        SEC["Secret: virtwork-cpu-0-cloudinit\nlabels: managed-by=virtwork"]
         NS["Namespace: virtwork"]
     end
 
@@ -312,6 +315,7 @@ flowchart LR
     SEL --> VM1
     SEL --> VM2
     SEL --> SVC
+    SEL --> SEC
     DEL --> NS
 ```
 
@@ -382,7 +386,9 @@ Viper's built-in priority chain handles this natively when bound to Cobra flags:
 | Retry | Backoff for rate-limited/5xx | Handles transient cluster issues. NotFound/Unauthorized/Forbidden are fatal (configuration errors). |
 | SSH credential injection | `BaseWorkload.BuildCloudConfig()` helper | Cross-cutting concern handled once in base struct. Workloads call one method. |
 | Multi-VM orchestration | `MultiVMWorkload` interface + `VMCount() > 1` | Generic detection — future multi-VM workloads work without orchestration changes. |
-| Cleanup error semantics | Inline per-resource try/catch | Different from create-time error handling (which is fail-fast). Cleanup continues on individual failures. |
+| Network VM scaling | `VMCount() = count * 2` | Honors `--vm-count` to create N server/client pairs instead of a single hardcoded pair. |
+| Cloud-init Secrets | `CloudInitSecretName` → `UserDataSecretRef` | For large userdata, stores cloud-init in a K8s Secret instead of inline in the VM spec. |
+| Cleanup error semantics | Sequential per-resource deletion with error accumulation | Different from create-time error handling (which is fail-fast). Cleanup continues on individual failures. |
 
 ---
 
@@ -405,22 +411,24 @@ virtwork/
 │   ├── vm/
 │   │   └── vm.go                  # VM spec construction + typed CRUD + retry
 │   ├── resources/
-│   │   └── resources.go           # Namespace + Service helpers
+│   │   └── resources.go           # Namespace + Service + Secret helpers
 │   ├── wait/
 │   │   └── wait.go                # VMI readiness polling (errgroup)
 │   ├── cleanup/
-│   │   └── cleanup.go             # Label-based teardown (errgroup)
-│   └── workloads/
-│       ├── workload.go            # Workload interface + BaseWorkload
-│       ├── registry.go            # Registry map + lookup
-│       ├── cpu.go                 # stress-ng CPU continuous workload
-│       ├── memory.go              # stress-ng VM memory pressure workload
-│       ├── database.go            # PostgreSQL + pgbench loop
-│       ├── network.go             # iperf3 server/client pair
-│       └── disk.go                # fio mixed I/O profiles
+│   │   └── cleanup.go             # Label-based teardown (VMs, Services, Secrets)
+│   ├── workloads/
+│   │   ├── workload.go            # Workload interface + BaseWorkload
+│   │   ├── registry.go            # Registry map + lookup
+│   │   ├── cpu.go                 # stress-ng CPU continuous workload
+│   │   ├── memory.go              # stress-ng VM memory pressure workload
+│   │   ├── database.go            # PostgreSQL + pgbench loop
+│   │   ├── network.go             # iperf3 server/client pair
+│   │   └── disk.go                # fio mixed I/O profiles
+│   └── testutil/
+│       ├── testutil.go            # Shared test helpers (namespace, connect, cleanup)
+│       └── binary.go              # Binary build/run helpers for E2E
 ├── tests/
-│   ├── integration/               # Integration tests (//go:build integration)
-│   └── e2e/                       # E2E tests (//go:build e2e)
+│   └── e2e/                       # E2E acceptance tests (//go:build e2e)
 ├── docs/
 │   ├── architecture.md            # This file
 │   ├── development.md             # Developer guide

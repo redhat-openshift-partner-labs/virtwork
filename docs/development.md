@@ -75,11 +75,12 @@ ginkgo -r --focus "BuildVMSpec"
 
 ### Test Organization
 
-| Directory | Build Tag | Cluster Required | Description |
-|-----------|-----------|------------------|-------------|
-| `internal/*/` | (none) | No | Unit tests alongside source, all K8s calls use fake client |
-| `tests/integration/` | `integration` | Yes | Real cluster interactions |
-| `tests/e2e/` | `e2e` | Yes | Full workflow validation |
+| Location | Build Tag | Cluster Required | Description |
+|----------|-----------|------------------|-------------|
+| `internal/*/_test.go` | (none) | No | Unit tests alongside source, all K8s calls use fake client |
+| `internal/*/_integration_test.go` | `integration` | Yes | Integration tests alongside source, real cluster interactions |
+| `tests/e2e/` | `e2e` | Yes | E2E/acceptance tests, black-box CLI binary testing |
+| `internal/testutil/` | (none) | — | Shared test helpers (no test files, pure library) |
 
 Unit tests use controller-runtime's fake client:
 
@@ -90,18 +91,67 @@ fake.NewClientBuilder().
     Build()
 ```
 
-### Running Integration and E2E Tests
+Integration tests use a real cluster connection:
+
+```go
+c = testutil.MustConnect("")
+namespace = testutil.UniqueNamespace("integ-prefix")
+DeferCleanup(func() { testutil.CleanupNamespace(ctx, c, namespace) })
+```
+
+E2E tests invoke the built binary:
+
+```go
+stdout, stderr, exitCode, err := testutil.RunVirtwork("run", "--dry-run", "--workloads", "cpu")
+Expect(exitCode).To(Equal(0))
+```
+
+### Running Integration Tests
+
+Integration tests live alongside source code with `//go:build integration` build tags. They are excluded from `go test ./...` (no tag).
+
+**Prerequisites:**
+- `KUBECONFIG` set or `~/.kube/config` available
+- Cluster with KubeVirt/CNV and CDI operators installed
+- Permissions to create/delete namespaces, VMs, Services, Secrets
 
 ```bash
-# Integration tests (requires cluster)
-go test -tags integration ./tests/integration/...
+# Run all integration tests
+go test -tags integration ./internal/...
 
-# E2E tests (requires cluster)
+# Run integration tests for a specific package
+go test -tags integration ./internal/vm/...
+
+# Via Ginkgo
+ginkgo -r --build-tags integration ./internal/
+
+# Skip slow tests (VM boot required)
+ginkgo -r --build-tags integration --label-filter='!slow' ./internal/
+```
+
+### Running E2E Tests
+
+E2E tests live in `tests/e2e/` and exercise the CLI binary as a black box. The binary is built automatically in `BeforeSuite`, or you can provide a pre-built binary via `VIRTWORK_BINARY`.
+
+**Prerequisites:**
+- All integration test prerequisites above
+- Go toolchain (for binary build) or `VIRTWORK_BINARY` env var
+
+```bash
+# Run all E2E tests
 go test -tags e2e ./tests/e2e/...
 
 # Via Ginkgo
-ginkgo -r -tags integration ./tests/integration/
-ginkgo -r -tags e2e ./tests/e2e/
+ginkgo -r --build-tags e2e ./tests/e2e/
+
+# Skip slow tests (cluster deployment)
+ginkgo -r --build-tags e2e --label-filter='!slow' ./tests/e2e/
+
+# Use a pre-built binary
+VIRTWORK_BINARY=./virtwork go test -tags e2e ./tests/e2e/...
+
+# Run everything (unit + integration + e2e)
+go test -tags "integration e2e" ./...
 ```
 
 ## Project Layout
@@ -114,14 +164,16 @@ internal/           # Application packages (not importable externally)
   cluster/          # controller-runtime client init + scheme
   cloudinit/        # Cloud-config YAML builder
   vm/               # VM spec construction + typed CRUD + retry
-  resources/        # Namespace + Service helpers
+  resources/        # Namespace + Service + Secret helpers
   wait/             # VMI readiness polling (errgroup)
-  cleanup/          # Label-based teardown (errgroup)
-  workloads/        # Workload interface, 5 implementations (cpu, memory, database, network, disk), registry
-tests/              # Integration and E2E tests
+  cleanup/          # Label-based teardown (VMs, Services, Secrets)
+  workloads/        # Workload interface, 5 implementations, registry
+  testutil/         # Shared test helpers for integration and E2E tests
+tests/              # Tests requiring external infrastructure
+  e2e/              # E2E acceptance tests (//go:build e2e)
 docs/               # Documentation
   architecture.md   # Layered architecture and mermaid diagrams
-  implementation-plan.md  # Phased build plan (11 phases)
+  implementation-plan.md  # Phased build plan
   development.md    # This file
   engineering-journals/   # Per-phase development journals
 ```
@@ -168,8 +220,13 @@ type MyWorkload struct {
     BaseWorkload
 }
 
-func NewMyWorkload(config WorkloadConfig) *MyWorkload {
-    return &MyWorkload{BaseWorkload: BaseWorkload{Config: config}}
+func NewMyWorkload(cfg config.WorkloadConfig, sshUser, sshPassword string, sshKeys []string) *MyWorkload {
+    return &MyWorkload{BaseWorkload: BaseWorkload{
+        Config:            cfg,
+        SSHUser:           sshUser,
+        SSHPassword:       sshPassword,
+        SSHAuthorizedKeys: sshKeys,
+    }}
 }
 
 func (w *MyWorkload) Name() string {
@@ -182,13 +239,6 @@ func (w *MyWorkload) CloudInitUserdata() (string, error) {
         Packages: []string{"my-package"},
         // ...
     })
-}
-
-func (w *MyWorkload) VMResources() VMResourceSpec {
-    return VMResourceSpec{
-        CPUCores: w.Config.CPUCores,
-        Memory:   w.Config.Memory,
-    }
 }
 ```
 
@@ -227,12 +277,12 @@ Add the constructor to `internal/workloads/registry.go`:
 ```go
 func DefaultRegistry() Registry {
     return Registry{
-        "cpu":         func(c WorkloadConfig, o RegistryOpts) Workload { return NewCPUWorkload(c, o) },
-        "memory":      func(c WorkloadConfig, o RegistryOpts) Workload { return NewMemoryWorkload(c, o) },
-        "database":    func(c WorkloadConfig, o RegistryOpts) Workload { return NewDatabaseWorkload(c, o) },
-        "network":     func(c WorkloadConfig, o RegistryOpts) Workload { return NewNetworkWorkload(c, o) },
-        "disk":        func(c WorkloadConfig, o RegistryOpts) Workload { return NewDiskWorkload(c, o) },
-        "my-workload": func(c WorkloadConfig, o RegistryOpts) Workload { return NewMyWorkload(c, o) },
+        "cpu":         func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewCPUWorkload(cfg, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
+        "memory":      func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewMemoryWorkload(cfg, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
+        "database":    func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewDatabaseWorkload(cfg, opts.DataDiskSize, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
+        "network":     func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewNetworkWorkload(cfg, opts.Namespace, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
+        "disk":        func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewDiskWorkload(cfg, opts.DataDiskSize, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
+        "my-workload": func(cfg config.WorkloadConfig, opts *RegistryOpts) Workload { return NewMyWorkload(cfg, opts.SSHUser, opts.SSHPassword, opts.SSHAuthorizedKeys) },
     }
 }
 ```
@@ -251,7 +301,7 @@ var _ = Describe("MyWorkload", func() {
     var wl *MyWorkload
 
     BeforeEach(func() {
-        wl = NewMyWorkload(WorkloadConfig{CPUCores: 2, Memory: "2Gi"})
+        wl = NewMyWorkload(config.WorkloadConfig{CPUCores: 2, Memory: "2Gi"}, "virtwork", "", nil)
     })
 
     It("should return correct name", func() {

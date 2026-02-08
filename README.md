@@ -48,7 +48,7 @@ virtwork cleanup
 | **cpu** | N (configurable) | Continuous CPU stress | `stress-ng --cpu 0 --cpu-method all` |
 | **memory** | N (configurable) | Memory pressure at 80% | `stress-ng --vm 1 --vm-bytes 80%` |
 | **database** | N (configurable) | PostgreSQL with pgbench loop | `pgbench -c 10 -j 2 -T 300` |
-| **network** | 2 (server + client) | Bidirectional throughput | `iperf3 --bidir` |
+| **network** | N×2 (server + client pairs) | Bidirectional throughput | `iperf3 --bidir` |
 | **disk** | N (configurable) | Mixed random and sequential I/O | `fio` with multiple profiles |
 
 All workloads run as systemd services inside the VMs, surviving reboots and auto-restarting on failure.
@@ -181,13 +181,13 @@ virtwork/
 │   ├── cluster/                   # controller-runtime client init
 │   ├── cloudinit/                 # Cloud-config YAML builder
 │   ├── vm/                        # VM spec construction + CRUD + retry
-│   ├── resources/                 # Namespace + Service helpers
+│   ├── resources/                 # Namespace + Service + Secret helpers
 │   ├── wait/                      # VMI readiness polling
-│   ├── cleanup/                   # Label-based teardown
-│   └── workloads/                 # Workload interface + 5 implementations + registry
+│   ├── cleanup/                   # Label-based teardown (VMs, Services, Secrets)
+│   ├── workloads/                 # Workload interface + 5 implementations + registry
+│   └── testutil/                  # Shared test helpers for integration + E2E
 ├── tests/
-│   ├── integration/               # Integration tests (requires cluster)
-│   └── e2e/                       # E2E tests (requires cluster)
+│   └── e2e/                       # E2E acceptance tests (//go:build e2e)
 ├── docs/
 │   ├── architecture.md            # Layered architecture and diagrams
 │   ├── development.md             # Developer guide
@@ -210,11 +210,14 @@ go test -race ./...
 # Using Ginkgo BDD runner
 ginkgo -r
 
-# Integration tests (requires cluster)
-go test -tags integration ./tests/integration/...
+# Integration tests (requires cluster with KubeVirt/CNV)
+go test -tags integration ./internal/...
 
-# E2E tests (requires cluster)
+# E2E tests (requires cluster + builds binary automatically)
 go test -tags e2e ./tests/e2e/...
+
+# All tests
+go test -tags "integration e2e" ./...
 ```
 
 ### Building
