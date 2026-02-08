@@ -19,7 +19,8 @@ This document breaks the [design plan](openshift-virtualization-workload-automat
 | 8 | 3 | `internal/workloads` (registry) | 10 | No |
 | 9 | 4 | `internal/cleanup` | 7-10 | Yes |
 | 10 | 4 | `cmd/virtwork` (Cobra CLI + orchestration) | 22-25 + BDD | Yes |
-| **Total** | | **10 packages** | **~155 tests** | |
+| 11 | — | Integration tests (alongside source) + E2E tests (`tests/e2e/`) | ~51 | Yes |
+| **Total** | | **11 packages + testutil + e2e** | **~206 tests** | |
 
 **Note:** Test counts increased from the initial estimate to account for SSH credential support (cloud-init users block, config fields, CLI flags) and the memory workload. These are lessons from the Python implementation experience that revealed the true scope.
 
@@ -827,16 +828,85 @@ Run specific test levels:
 # Unit tests only (default, no build tag)
 go test ./...
 
-# Include integration tests
-go test -tags integration ./...
+# Integration tests (alongside source, requires cluster)
+go test -tags integration ./internal/...
 
-# Include e2e tests
-go test -tags e2e ./...
+# E2E tests (separate directory, requires cluster + binary)
+go test -tags e2e ./tests/e2e/...
 
-# All tests via Ginkgo
+# All tests
+go test -tags "integration e2e" ./...
+
+# Via Ginkgo
 ginkgo -r
-ginkgo -r -tags integration
+ginkgo -r --build-tags integration ./internal/
+ginkgo -r --build-tags e2e ./tests/e2e/
 ```
+
+---
+
+## Phase 11: Integration and E2E Tests
+
+**Goal:** Add integration tests alongside source code with `//go:build integration` tags and E2E acceptance tests in `tests/e2e/` with `//go:build e2e` tags.
+
+### Test Architecture
+
+| Category | Location | Build Tag | What it tests |
+|----------|----------|-----------|---------------|
+| Integration | `internal/*/_integration_test.go` | `integration` | Individual packages against a real KubeVirt cluster |
+| E2E | `tests/e2e/*.go` | `e2e` | CLI binary as a black box (deploy, cleanup, dry-run) |
+| Helpers | `internal/testutil/` | (none) | Shared utilities: namespace generation, cluster connect, binary execution |
+
+### Files Created
+
+**Shared helpers:**
+- `internal/testutil/testutil.go` — `UniqueNamespace()`, `MustConnect()`, `CleanupNamespace()`, `ManagedLabels()`, `DefaultVMOpts()`, `EnsureTestNamespace()`, `WaitForVMRunning()`
+- `internal/testutil/binary.go` — `BinaryPath()`, `RunVirtwork()` for E2E binary execution
+
+**Integration tests (5 files):**
+- `internal/cluster/cluster_integration_test.go` — Real cluster connectivity and scheme validation
+- `internal/resources/resources_integration_test.go` — Real namespace/service/secret CRUD and idempotency
+- `internal/vm/vm_integration_test.go` — Real VirtualMachine create/delete/list
+- `internal/wait/wait_integration_test.go` — Real VMI readiness polling (Label("slow"))
+- `internal/cleanup/cleanup_integration_test.go` — Real label-based cleanup with error tolerance
+
+**E2E tests (5 files):**
+- `tests/e2e/e2e_suite_test.go` — Ginkgo bootstrap, binary build in `BeforeSuite`
+- `tests/e2e/dryrun_test.go` — `virtwork run --dry-run` scenarios (no cluster needed)
+- `tests/e2e/run_test.go` — `virtwork run` with real cluster deployment
+- `tests/e2e/cleanup_test.go` — `virtwork cleanup` after deployment
+- `tests/e2e/fullcycle_test.go` — Deploy → verify → cleanup cycles
+
+### Key Design Decisions
+
+- Integration tests share existing `*_suite_test.go` runners (no build tag on suite files)
+- Each test creates a unique namespace via `UniqueNamespace()` with `DeferCleanup` teardown
+- Slow tests (VM boot ~60-120s) use Ginkgo `Label("slow")` for filtering
+- E2E tests invoke the binary via `os/exec`, verifying stdout/stderr/exit code
+- `internal/testutil/` is importable by both integration and E2E tests (same Go module)
+
+### Verification
+
+```bash
+# Unit tests unchanged
+go test ./...
+
+# Integration tests (requires cluster)
+go test -tags integration ./internal/...
+
+# E2E tests (requires cluster + binary)
+go test -tags e2e ./tests/e2e/...
+
+# All tests
+go test -tags "integration e2e" ./...
+```
+
+### Commits
+
+- `test: add shared test helpers for integration and E2E tests`
+- `test: add integration tests for cluster, resources, vm, wait, cleanup`
+- `test: add E2E test suite with dry-run, run, cleanup, and full-cycle scenarios`
+- `docs: add integration and E2E test documentation`
 
 ---
 
