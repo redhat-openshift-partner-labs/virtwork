@@ -39,6 +39,52 @@ func CreateService(ctx context.Context, c client.Client, svc *corev1.Service) er
 	return err
 }
 
+// CreateCloudInitSecret creates a Secret holding cloud-init userdata.
+// The secret is labeled for cleanup. AlreadyExists errors are treated as
+// success (idempotent).
+func CreateCloudInitSecret(ctx context.Context, c client.Client, name, namespace, userdata string, labels map[string]string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		StringData: map[string]string{
+			"userdata": userdata,
+		},
+	}
+	err := c.Create(ctx, secret)
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
+	return err
+}
+
+// DeleteManagedSecrets lists and deletes secrets matching the given labels in
+// the namespace. Returns the count of successfully deleted secrets.
+func DeleteManagedSecrets(ctx context.Context, c client.Client, namespace string, labels map[string]string) (int, error) {
+	secretList := &corev1.SecretList{}
+	opts := []client.ListOption{
+		client.InNamespace(namespace),
+		client.MatchingLabels(labels),
+	}
+	if err := c.List(ctx, secretList, opts...); err != nil {
+		return 0, fmt.Errorf("listing secrets in %s: %w", namespace, err)
+	}
+
+	deleted := 0
+	for i := range secretList.Items {
+		if err := c.Delete(ctx, &secretList.Items[i]); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return deleted, fmt.Errorf("deleting secret %s: %w", secretList.Items[i].Name, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 // DeleteManagedServices lists and deletes services matching the given labels in
 // the namespace. Returns the count of successfully deleted services.
 func DeleteManagedServices(ctx context.Context, c client.Client, namespace string, labels map[string]string) (int, error) {
