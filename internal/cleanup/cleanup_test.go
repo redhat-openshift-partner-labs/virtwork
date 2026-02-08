@@ -49,6 +49,19 @@ var _ = Describe("CleanupAll", func() {
 		})
 	}
 
+	newManagedSecret := func(name string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels:    labels,
+			},
+			StringData: map[string]string{
+				"userdata": "#cloud-config\n",
+			},
+		}
+	}
+
 	newManagedService := func(name string) *corev1.Service {
 		return &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -148,6 +161,47 @@ var _ = Describe("CleanupAll", func() {
 		Expect(result.Errors).To(HaveLen(1))
 	})
 
+	It("should delete secrets by managed-by label", func() {
+		sec1 := newManagedSecret("sec-1")
+		sec2 := newManagedSecret("sec-2")
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sec1, sec2).Build()
+
+		result, err := cleanup.CleanupAll(ctx, c, namespace, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.SecretsDeleted).To(Equal(2))
+		Expect(result.Errors).To(BeEmpty())
+
+		secretList := &corev1.SecretList{}
+		Expect(c.List(ctx, secretList, client.InNamespace(namespace))).To(Succeed())
+		Expect(secretList.Items).To(BeEmpty())
+	})
+
+	It("should tolerate individual secret deletion errors", func() {
+		sec1 := newManagedSecret("sec-1")
+		sec2 := newManagedSecret("sec-2")
+		callCount := 0
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(sec1, sec2).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+					if _, ok := obj.(*corev1.Secret); ok {
+						callCount++
+						if callCount == 1 {
+							return fmt.Errorf("simulated secret delete error")
+						}
+					}
+					return cl.Delete(ctx, obj, opts...)
+				},
+			}).
+			Build()
+
+		result, err := cleanup.CleanupAll(ctx, c, namespace, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.SecretsDeleted).To(Equal(1))
+		Expect(result.Errors).To(HaveLen(1))
+	})
+
 	It("should not delete namespace by default", func() {
 		ns := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -204,12 +258,14 @@ var _ = Describe("CleanupAll", func() {
 		vm2 := newManagedVM("vm-2")
 		vm3 := newManagedVM("vm-3")
 		svc1 := newManagedService("svc-1")
-		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm1, vm2, vm3, svc1).Build()
+		sec1 := newManagedSecret("sec-1")
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm1, vm2, vm3, svc1, sec1).Build()
 
 		result, err := cleanup.CleanupAll(ctx, c, namespace, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.VMsDeleted).To(Equal(3))
 		Expect(result.ServicesDeleted).To(Equal(1))
+		Expect(result.SecretsDeleted).To(Equal(1))
 		Expect(result.NamespaceDeleted).To(BeFalse())
 		Expect(result.Errors).To(BeEmpty())
 	})
@@ -221,6 +277,7 @@ var _ = Describe("CleanupAll", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.VMsDeleted).To(Equal(0))
 		Expect(result.ServicesDeleted).To(Equal(0))
+		Expect(result.SecretsDeleted).To(Equal(0))
 		Expect(result.NamespaceDeleted).To(BeFalse())
 		Expect(result.Errors).To(BeEmpty())
 	})

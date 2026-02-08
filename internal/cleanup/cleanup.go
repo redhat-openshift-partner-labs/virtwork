@@ -20,6 +20,7 @@ import (
 type CleanupResult struct {
 	VMsDeleted       int
 	ServicesDeleted  int
+	SecretsDeleted   int
 	NamespaceDeleted bool
 	Errors           []error
 }
@@ -65,6 +66,21 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 			continue
 		}
 		result.ServicesDeleted++
+	}
+
+	// Delete secrets by label
+	secretList := &corev1.SecretList{}
+	if err := c.List(ctx, secretList, listOpts...); err != nil {
+		return result, fmt.Errorf("listing secrets in %s: %w", namespace, err)
+	}
+	for i := range secretList.Items {
+		if err := c.Delete(ctx, &secretList.Items[i]); err != nil {
+			if !apierrors.IsNotFound(err) {
+				result.Errors = append(result.Errors, fmt.Errorf("deleting secret %s: %w", secretList.Items[i].Name, err))
+			}
+			continue
+		}
+		result.SecretsDeleted++
 	}
 
 	// Optionally delete namespace
