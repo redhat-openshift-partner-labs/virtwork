@@ -101,11 +101,38 @@ var _ = Describe("WaitForVMReady", func() {
 		Expect(err.Error()).To(ContainSubstring("timed out"))
 	})
 
-	It("should return error when VMI not found", func() {
+	It("should retry when VMI not found and eventually timeout", func() {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		err := wait.WaitForVMReady(ctx, c, "nonexistent", "default", 50*time.Millisecond, 10*time.Millisecond)
 		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("timed out"))
+	})
+
+	It("should succeed when VMI appears after initial not-found", func() {
+		var callCount int32
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					count := atomic.AddInt32(&callCount, 1)
+					if count <= 2 {
+						return cl.Get(ctx, key, obj, opts...) // not found from empty store
+					}
+					// Simulate VMI appearing on 3rd call
+					if vmiObj, ok := obj.(*kubevirtv1.VirtualMachineInstance); ok {
+						vmiObj.Name = key.Name
+						vmiObj.Namespace = key.Namespace
+						vmiObj.Status.Phase = kubevirtv1.Running
+					}
+					return nil
+				},
+			}).
+			Build()
+
+		err := wait.WaitForVMReady(ctx, c, "delayed-vm", "default", 5*time.Second, 10*time.Millisecond)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(atomic.LoadInt32(&callCount)).To(BeNumerically(">=", int32(3)))
 	})
 
 	It("should respect context cancellation", func() {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -31,7 +32,16 @@ func WaitForVMReady(ctx context.Context, c client.Client, name, namespace string
 		vmi := &kubevirtv1.VirtualMachineInstance{}
 		key := client.ObjectKey{Name: name, Namespace: namespace}
 		if err := c.Get(ctx, key, vmi); err != nil {
-			return fmt.Errorf("getting VMI %s/%s: %w", namespace, name, err)
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("getting VMI %s/%s: %w", namespace, name, err)
+			}
+			fmt.Printf("VM %s: VMI not yet created, retrying...\n", name)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled waiting for VM %s/%s: %w", namespace, name, ctx.Err())
+			case <-time.After(interval):
+			}
+			continue
 		}
 
 		if vmi.Status.Phase == kubevirtv1.Running {
