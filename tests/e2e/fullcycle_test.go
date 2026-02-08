@@ -1,0 +1,91 @@
+//go:build e2e
+
+// Copyright 2026 Red Hat
+// SPDX-License-Identifier: Apache-2.0
+
+package e2e_test
+
+import (
+	"context"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"virtwork/internal/testutil"
+	"virtwork/internal/vm"
+)
+
+var _ = Describe("Full deployment cycle", Label("slow"), func() {
+	var namespace string
+
+	BeforeEach(func() {
+		namespace = testutil.UniqueNamespace("e2e-cycle")
+	})
+
+	AfterEach(func() {
+		_, _, _, _ = testutil.RunVirtwork("cleanup",
+			"--namespace", namespace, "--delete-namespace")
+	})
+
+	It("should deploy CPU workload, wait for readiness, and clean up", func() {
+		// Step 1: Deploy
+		stdout, _, exitCode, err := testutil.RunVirtwork(
+			"run", "--workloads", "cpu", "--vm-count", "1",
+			"--namespace", namespace, "--timeout", "300")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(exitCode).To(Equal(0))
+		Expect(stdout).To(ContainSubstring("ready"))
+
+		// Step 2: Verify resources exist on cluster
+		c := testutil.MustConnect("")
+		ctx := context.Background()
+		vms, err := vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vms).To(HaveLen(1))
+		Expect(vms[0].Name).To(Equal("virtwork-cpu-0"))
+
+		// Step 3: Cleanup
+		stdout, _, exitCode, err = testutil.RunVirtwork(
+			"cleanup", "--namespace", namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(exitCode).To(Equal(0))
+		Expect(stdout).To(ContainSubstring("1 VMs deleted"))
+
+		// Step 4: Verify resources are gone
+		vms, err = vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vms).To(BeEmpty())
+	})
+
+	It("should deploy network workload and clean up all resources", func() {
+		// Deploy
+		_, _, exitCode, err := testutil.RunVirtwork(
+			"run", "--workloads", "network", "--vm-count", "1",
+			"--namespace", namespace, "--no-wait")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(exitCode).To(Equal(0))
+
+		// Verify service exists
+		c := testutil.MustConnect("")
+		ctx := context.Background()
+
+		svc := &corev1.Service{}
+		err = c.Get(ctx, client.ObjectKey{
+			Name: "virtwork-iperf3-server", Namespace: namespace}, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Verify 2 VMs exist (server + client)
+		vms, err := vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vms).To(HaveLen(2))
+
+		// Cleanup
+		stdout, _, exitCode, err := testutil.RunVirtwork(
+			"cleanup", "--namespace", namespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(exitCode).To(Equal(0))
+		Expect(stdout).To(ContainSubstring("2 VMs deleted"))
+	})
+})
