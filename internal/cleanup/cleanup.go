@@ -23,16 +23,23 @@ type CleanupResult struct {
 	SecretsDeleted   int
 	NamespaceDeleted bool
 	Errors           []error
+	RunIDs           []string // unique run IDs collected from cleaned-up resources
 }
 
 // CleanupAll deletes all virtwork-managed resources in the given namespace.
+// If runID is non-empty, only resources with that specific virtwork/run-id label are deleted.
 // Individual deletion failures are recorded but do not abort the operation.
 // If deleteNamespace is true, the namespace itself is deleted as the final step.
-func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNamespace bool) (*CleanupResult, error) {
+func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNamespace bool, runID string) (*CleanupResult, error) {
 	result := &CleanupResult{}
 	managedLabels := map[string]string{
 		constants.LabelManagedBy: constants.ManagedByValue,
 	}
+	if runID != "" {
+		managedLabels[constants.LabelRunID] = runID
+	}
+
+	runIDSet := make(map[string]struct{})
 
 	// Delete VMs by label
 	vmList := &kubevirtv1.VirtualMachineList{}
@@ -44,6 +51,7 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 		return result, fmt.Errorf("listing VMs in %s: %w", namespace, err)
 	}
 	for i := range vmList.Items {
+		collectRunID(vmList.Items[i].Labels, runIDSet)
 		if err := c.Delete(ctx, &vmList.Items[i]); err != nil {
 			if !apierrors.IsNotFound(err) {
 				result.Errors = append(result.Errors, fmt.Errorf("deleting VM %s: %w", vmList.Items[i].Name, err))
@@ -59,6 +67,7 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 		return result, fmt.Errorf("listing services in %s: %w", namespace, err)
 	}
 	for i := range svcList.Items {
+		collectRunID(svcList.Items[i].Labels, runIDSet)
 		if err := c.Delete(ctx, &svcList.Items[i]); err != nil {
 			if !apierrors.IsNotFound(err) {
 				result.Errors = append(result.Errors, fmt.Errorf("deleting service %s: %w", svcList.Items[i].Name, err))
@@ -74,6 +83,7 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 		return result, fmt.Errorf("listing secrets in %s: %w", namespace, err)
 	}
 	for i := range secretList.Items {
+		collectRunID(secretList.Items[i].Labels, runIDSet)
 		if err := c.Delete(ctx, &secretList.Items[i]); err != nil {
 			if !apierrors.IsNotFound(err) {
 				result.Errors = append(result.Errors, fmt.Errorf("deleting secret %s: %w", secretList.Items[i].Name, err))
@@ -81,6 +91,11 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 			continue
 		}
 		result.SecretsDeleted++
+	}
+
+	// Collect unique run IDs
+	for id := range runIDSet {
+		result.RunIDs = append(result.RunIDs, id)
 	}
 
 	// Optionally delete namespace
@@ -100,4 +115,11 @@ func CleanupAll(ctx context.Context, c client.Client, namespace string, deleteNa
 	}
 
 	return result, nil
+}
+
+// collectRunID extracts the virtwork/run-id label from a resource's labels and adds it to the set.
+func collectRunID(labels map[string]string, set map[string]struct{}) {
+	if id, ok := labels[constants.LabelRunID]; ok && id != "" {
+		set[id] = struct{}{}
+	}
 }

@@ -61,7 +61,7 @@ func ManagedLabels() map[string]string {
 // then deletes the namespace itself. Errors are logged but do not cause panic.
 // Suitable for use with Ginkgo's DeferCleanup.
 func CleanupNamespace(ctx context.Context, c client.Client, namespace string) {
-	_, _ = cleanup.CleanupAll(ctx, c, namespace, true)
+	_, _ = cleanup.CleanupAll(ctx, c, namespace, true, "")
 }
 
 // DefaultVMOpts returns a minimal VMSpecOpts suitable for integration tests.
