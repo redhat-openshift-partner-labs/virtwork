@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virtwork
+  namespace: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork
+spec:
+  replicas: 1
+  # Recreate strategy: the RWO PVC cannot be mounted by two pods
+  # simultaneously, so RollingUpdate would cause scheduling failures.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: virtwork
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: virtwork
+        app.kubernetes.io/managed-by: virtwork
+    spec:
+      serviceAccountName: virtwork
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: virtwork
+          image: quay.io/virtwork/virtwork:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: virtwork-config
+                optional: true
+            - secretRef:
+                name: virtwork-secrets
+                optional: true
+          env:
+            # Set to "run" or "cleanup" to auto-execute on pod start.
+            # Leave empty for interactive mode (sleep infinity + oc exec).
+            - name: VIRTWORK_COMMAND
+              value: ""
+            # Additional CLI arguments when VIRTWORK_COMMAND is set.
+            # Example: "--workloads cpu,memory --vm-count 2"
+            - name: VIRTWORK_ARGS
+              value: ""
+          volumeMounts:
+            - name: audit-data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: audit-data
+          persistentVolumeClaim:
+            claimName: virtwork-audit-data

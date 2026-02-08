@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork
+rules:
+  # Namespace management (EnsureNamespace, cleanup --delete-namespace)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "get", "delete"]
+  # VM lifecycle (CreateVM, DeleteVM, ListVMs)
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines"]
+    verbs: ["create", "delete", "get", "list"]
+  # VMI readiness polling (GetVMIPhase, WaitForReady)
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances"]
+    verbs: ["get", "list"]
+  # DataVolumes via DataVolumeTemplates embedded in VM specs
+  - apiGroups: ["cdi.kubevirt.io"]
+    resources: ["datavolumes"]
+    verbs: ["create", "delete", "get", "list"]
+  # Service management (network workload iperf3 service)
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get", "list"]
+  # Secret management (cloud-init userdata secrets)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork
+subjects:
+  - kind: ServiceAccount
+    name: virtwork
+    namespace: virtwork
+roleRef:
+  kind: ClusterRole
+  name: virtwork
+  apiGroup: rbac.authorization.k8s.io

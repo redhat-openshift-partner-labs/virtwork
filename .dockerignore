@@ -1,0 +1,16 @@
+.git
+.idea
+.serena
+.claude
+.venv
+.aiignore
+.mcp.json
+claude-logs
+docs/engineering-journals
+virtwork.db
+virtwork.db-wal
+virtwork.db-shm
+virtctl
+deploy/
+tests/
+LICENSE

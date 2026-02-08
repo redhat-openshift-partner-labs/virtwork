@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork

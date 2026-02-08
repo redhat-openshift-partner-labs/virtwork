@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: virtwork-config
+  namespace: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork
+data:
+  VIRTWORK_NAMESPACE: "virtwork"
+  VIRTWORK_CONTAINER_DISK_IMAGE: "quay.io/containerdisks/fedora:41"
+  VIRTWORK_DATA_DISK_SIZE: "10Gi"
+  VIRTWORK_CPU_CORES: "2"
+  VIRTWORK_MEMORY: "2Gi"
+  VIRTWORK_WAIT_FOR_READY: "true"
+  VIRTWORK_TIMEOUT: "600"
+  VIRTWORK_DRY_RUN: "false"
+  VIRTWORK_VERBOSE: "false"
+  VIRTWORK_AUDIT: "true"
+  VIRTWORK_AUDIT_DB: "/data/virtwork.db"
+  VIRTWORK_SSH_USER: "virtwork"

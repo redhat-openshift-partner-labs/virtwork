@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: virtwork-audit-data
+  namespace: virtwork
+  labels:
+    app.kubernetes.io/name: virtwork
+    app.kubernetes.io/managed-by: virtwork
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
