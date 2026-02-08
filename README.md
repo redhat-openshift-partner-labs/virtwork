@@ -39,6 +39,9 @@ virtwork run --ssh-user virtwork --ssh-key-file ~/.ssh/id_ed25519.pub
 
 # Clean up all managed resources
 virtwork cleanup
+
+# Clean up resources from a specific run
+virtwork cleanup --run-id <uuid>
 ```
 
 ## Workloads
@@ -80,6 +83,9 @@ Global Flags:
       --kubeconfig string          Path to kubeconfig file
       --config string              Path to YAML config file
       --verbose                    Enable verbose output
+      --audit                      Enable audit tracking (default true)
+      --no-audit                   Disable audit tracking
+      --audit-db string            Path to SQLite audit database (default "virtwork.db")
 ```
 
 ### `virtwork cleanup`
@@ -89,9 +95,10 @@ Delete all resources managed by virtwork.
 ```
 Flags:
       --delete-namespace           Also delete the namespace
+      --run-id string              Target a specific run for cleanup
 ```
 
-Cleanup is error-tolerant — individual resource deletion failures are logged but do not abort the operation. All resources are tracked via the `app.kubernetes.io/managed-by: virtwork` label, so cleanup works even if the tool crashed mid-deployment.
+Cleanup is error-tolerant — individual resource deletion failures are logged but do not abort the operation. All resources are tracked via the `app.kubernetes.io/managed-by: virtwork` label and `virtwork/run-id` labels, so cleanup works even if the tool crashed mid-deployment.
 
 ## Configuration
 
@@ -110,6 +117,8 @@ virtwork uses a priority chain for configuration (highest to lowest):
 | `VIRTWORK_SSH_USER` | SSH user for VMs |
 | `VIRTWORK_SSH_PASSWORD` | SSH password for VMs |
 | `VIRTWORK_SSH_AUTHORIZED_KEYS` | Comma-separated SSH public keys |
+| `VIRTWORK_AUDIT` | Enable audit tracking (true/false) |
+| `VIRTWORK_AUDIT_DB` | Path to SQLite audit database |
 
 ### YAML Config File
 
@@ -134,6 +143,31 @@ workloads:
     memory: 4Gi
 ```
 
+## Audit Tracking
+
+Every execution is tracked in a local SQLite database for operational visibility. Each `virtwork run` and `virtwork cleanup` generates a UUID applied as a `virtwork/run-id` label on all K8s resources.
+
+The audit database records execution parameters, timestamps, workload details, VM details, resource details, and events. During cleanup, run IDs are collected from resources and linked back to the cleanup record.
+
+No SSH credentials are stored — only a boolean indicating whether SSH authentication was configured.
+
+```bash
+# Disable audit tracking
+virtwork run --no-audit
+
+# Use a custom database path
+virtwork run --audit-db /path/to/audit.db
+
+# Query recent executions
+sqlite3 virtwork.db "SELECT run_id, command, status, started_at FROM audit_log ORDER BY id DESC LIMIT 10;"
+
+# Query VMs from a specific run
+sqlite3 virtwork.db "SELECT vm_name, component, cpu_cores, memory FROM vm_details WHERE audit_id = 1;"
+
+# Query events timeline
+sqlite3 virtwork.db "SELECT event_type, message, occurred_at FROM events WHERE audit_id = 1 ORDER BY occurred_at;"
+```
+
 ## SSH Access
 
 VMs can be configured with SSH access for debugging and inspection.
@@ -154,12 +188,57 @@ When no SSH flags are provided, no user account is configured in the VMs.
 
 > **Note:** SSH passwords passed via `--ssh-password` are visible in process listings and stored as plaintext in the VM spec. Use SSH key authentication for anything beyond test environments.
 
+## OpenShift Deployment
+
+virtwork can run as a pod on the cluster using the provided Kustomize manifests in `deploy/`. The container image is available at `quay.io/opdev/virtwork:latest`.
+
+### Deploy with Kustomize
+
+```bash
+oc apply -k deploy/
+```
+
+This creates:
+- A `virtwork` namespace with a ServiceAccount and RBAC for managing VMs, Services, and Secrets
+- A ConfigMap with default configuration (editable)
+- A Secret for sensitive values (SSH password)
+- A PVC for the audit database
+- A Deployment running the virtwork container
+
+### Container Configuration
+
+The pod behavior is controlled by two environment variables in the Deployment:
+
+| Variable | Description |
+|----------|-------------|
+| `VIRTWORK_COMMAND` | Set to `run` or `cleanup` to auto-execute on pod start. Leave empty for interactive mode. |
+| `VIRTWORK_ARGS` | Additional CLI arguments (e.g., `--workloads cpu,memory --vm-count 2`) |
+
+When `VIRTWORK_COMMAND` is empty, the pod sleeps indefinitely. Use `oc exec` to run virtwork commands interactively:
+
+```bash
+oc exec -it deploy/virtwork -- virtwork run --dry-run
+oc exec -it deploy/virtwork -- virtwork run --workloads cpu,memory
+oc exec -it deploy/virtwork -- virtwork cleanup
+```
+
+### Building the Container Image
+
+```bash
+# Build (requires glibc — CGO is needed for SQLite)
+podman build -t quay.io/opdev/virtwork:latest .
+
+# The Dockerfile uses a multi-stage build:
+# Stage 1: golang:1.25-bookworm (Debian) for CGO compilation
+# Stage 2: ubi9/ubi-minimal for a minimal runtime with sqlite-libs
+```
+
 ## Architecture
 
 The codebase follows a strict layered architecture where each layer depends only on layers below it.
 
 ```
-Layer 4 — Orchestration     cmd/virtwork, cleanup
+Layer 4 — Orchestration     cmd/virtwork, cleanup, audit
 Layer 3 — Workload Defs     workloads (interface, cpu, memory, database, network, disk, registry)
 Layer 2 — K8s Abstractions  vm, resources, wait
 Layer 1 — Infrastructure    config, cluster, cloudinit
@@ -184,10 +263,22 @@ virtwork/
 │   ├── resources/                 # Namespace + Service + Secret helpers
 │   ├── wait/                      # VMI readiness polling
 │   ├── cleanup/                   # Label-based teardown (VMs, Services, Secrets)
+│   ├── audit/                     # SQLite audit tracking (Auditor interface, schema, records)
 │   ├── workloads/                 # Workload interface + 5 implementations + registry
 │   └── testutil/                  # Shared test helpers for integration + E2E
 ├── tests/
 │   └── e2e/                       # E2E acceptance tests (//go:build e2e)
+├── deploy/                        # Kustomize manifests for OpenShift deployment
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── serviceaccount.yaml
+│   ├── rbac.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── pvc.yaml
+│   └── deployment.yaml
+├── Dockerfile                     # Multi-stage build (Debian builder + UBI9 runtime)
+├── entrypoint.sh                  # Container entrypoint (auto-run or sleep)
 ├── docs/
 │   ├── architecture.md            # Layered architecture and diagrams
 │   ├── development.md             # Developer guide
