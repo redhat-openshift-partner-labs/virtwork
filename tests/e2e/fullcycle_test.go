@@ -7,6 +7,7 @@ package e2e_test
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -53,10 +54,12 @@ var _ = Describe("Full deployment cycle", Label("slow"), func() {
 		Expect(exitCode).To(Equal(0))
 		Expect(stdout).To(ContainSubstring("1 VMs deleted"))
 
-		// Step 4: Verify resources are gone
-		vms, err = vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(vms).To(BeEmpty())
+		// Step 4: Verify resources are gone (KubeVirt finalizers may delay removal)
+		Eventually(func() int {
+			vms, err = vm.ListVMs(ctx, c, namespace, testutil.ManagedLabels())
+			Expect(err).NotTo(HaveOccurred())
+			return len(vms)
+		}, 60*time.Second, 2*time.Second).Should(Equal(0))
 	})
 
 	It("should deploy network workload and clean up all resources", func() {

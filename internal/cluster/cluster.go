@@ -5,6 +5,7 @@ package cluster
 
 import (
 	"fmt"
+	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -27,9 +28,14 @@ func NewScheme() *runtime.Scheme {
 
 // Connect creates a controller-runtime client.Client. It first attempts
 // in-cluster configuration; on failure it falls back to the kubeconfig at
-// the given path. Both failures produce a wrapped error.
+// the given path (checking the KUBECONFIG env var when the path is empty).
+// Both failures produce a wrapped error.
 func Connect(kubeconfigPath string) (client.Client, error) {
 	scheme := NewScheme()
+
+	if kubeconfigPath == "" {
+		kubeconfigPath = os.Getenv("KUBECONFIG")
+	}
 
 	restConfig, err := rest.InClusterConfig()
 	if err != nil {
