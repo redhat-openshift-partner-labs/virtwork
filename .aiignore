@@ -28,6 +28,7 @@ claude-logs/
 
 # Binaries
 /virtwork
+/virtctl
 *.exe
 
 # OS

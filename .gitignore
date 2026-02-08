@@ -30,6 +30,7 @@ claude-logs/
 
 # Binaries
 /virtwork
+/virtctl
 *.exe
 
 # Audit database
