@@ -39,6 +39,8 @@ type Config struct {
 	SSHUser             string                    `mapstructure:"ssh-user"`
 	SSHPassword         string                    `mapstructure:"ssh-password"`
 	SSHAuthorizedKeys   []string                  `mapstructure:"ssh-authorized-keys"`
+	AuditEnabled        bool                      `mapstructure:"audit"`
+	AuditDBPath         string                    `mapstructure:"audit-db"`
 }
 
 // SetDefaults registers Viper defaults.
@@ -56,6 +58,8 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("ssh-password", "")
 	v.SetDefault("kubeconfig", "")
 	v.SetDefault("cleanup-mode", "")
+	v.SetDefault("audit", true)
+	v.SetDefault("audit-db", constants.DefaultAuditDBPath)
 }
 
 // BindFlags registers Cobra flags on the given command.
@@ -144,6 +148,8 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 	cfg.Verbose = v.GetBool("verbose")
 	cfg.SSHUser = v.GetString("ssh-user")
 	cfg.SSHPassword = v.GetString("ssh-password")
+	cfg.AuditEnabled = v.GetBool("audit")
+	cfg.AuditDBPath = v.GetString("audit-db")
 
 	// Handle SSH authorized keys: CLI flags, env var (comma-split), or YAML list
 	cfg.SSHAuthorizedKeys = resolveSSHKeys(v, cmd)

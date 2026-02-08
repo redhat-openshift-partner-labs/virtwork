@@ -36,6 +36,12 @@ const (
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	LabelComponent = "app.kubernetes.io/component"
 	ManagedByValue = "virtwork"
+	LabelRunID     = "virtwork/run-id"
+)
+
+// Audit defaults.
+const (
+	DefaultAuditDBPath = "virtwork.db"
 )
 
 // Polling defaults for VMI readiness.
