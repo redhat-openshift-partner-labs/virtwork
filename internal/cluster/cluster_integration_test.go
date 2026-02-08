@@ -7,6 +7,7 @@ package cluster_test
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -17,15 +18,21 @@ import (
 	"virtwork/internal/cluster"
 )
 
+// kubeconfigPath returns the KUBECONFIG env var value, allowing the
+// integration tests to connect to the cluster configured by the caller.
+func kubeconfigPath() string {
+	return os.Getenv("KUBECONFIG")
+}
+
 var _ = Describe("Connect [integration]", func() {
-	It("should connect via default kubeconfig resolution", func() {
-		c, err := cluster.Connect("")
+	It("should connect using the configured kubeconfig", func() {
+		c, err := cluster.Connect(kubeconfigPath())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(c).NotTo(BeNil())
 	})
 
 	It("should return a functional client that can list namespaces", func() {
-		c, err := cluster.Connect("")
+		c, err := cluster.Connect(kubeconfigPath())
 		Expect(err).NotTo(HaveOccurred())
 
 		nsList := &corev1.NamespaceList{}
@@ -35,7 +42,7 @@ var _ = Describe("Connect [integration]", func() {
 	})
 
 	It("should register KubeVirt types", func() {
-		c, err := cluster.Connect("")
+		c, err := cluster.Connect(kubeconfigPath())
 		Expect(err).NotTo(HaveOccurred())
 
 		// Listing VMs should not return a "no kind registered" error.

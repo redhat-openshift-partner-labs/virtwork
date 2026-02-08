@@ -108,21 +108,23 @@ var _ = Describe("CreateService [integration]", func() {
 	})
 
 	It("should be idempotent", func() {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svc-idem",
-				Namespace: namespace,
-				Labels:    testutil.ManagedLabels(),
-			},
-			Spec: corev1.ServiceSpec{
-				Selector: map[string]string{"app": "test"},
-				Ports: []corev1.ServicePort{
-					{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP},
+		makeSvc := func() *corev1.Service {
+			return &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-svc-idem",
+					Namespace: namespace,
+					Labels:    testutil.ManagedLabels(),
 				},
-			},
+				Spec: corev1.ServiceSpec{
+					Selector: map[string]string{"app": "test"},
+					Ports: []corev1.ServicePort{
+						{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP},
+					},
+				},
+			}
 		}
-		Expect(resources.CreateService(ctx, c, svc)).To(Succeed())
-		Expect(resources.CreateService(ctx, c, svc)).To(Succeed())
+		Expect(resources.CreateService(ctx, c, makeSvc())).To(Succeed())
+		Expect(resources.CreateService(ctx, c, makeSvc())).To(Succeed())
 	})
 })
 

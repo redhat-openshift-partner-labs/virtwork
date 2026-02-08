@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,11 +34,14 @@ func UniqueNamespace(prefix string) string {
 }
 
 // MustConnect connects to the cluster using the given kubeconfig path.
-// If kubeconfigPath is empty, it uses the default kubeconfig resolution
-// (in-cluster first, then KUBECONFIG env var / ~/.kube/config).
+// If kubeconfigPath is empty, it checks the KUBECONFIG environment variable
+// before falling back to default kubeconfig resolution.
 // Panics on failure — suitable for test setup where connection failure
 // should abort the suite.
 func MustConnect(kubeconfigPath string) client.Client {
+	if kubeconfigPath == "" {
+		kubeconfigPath = os.Getenv("KUBECONFIG")
+	}
 	c, err := cluster.Connect(kubeconfigPath)
 	if err != nil {
 		panic(fmt.Sprintf("testutil.MustConnect: %v", err))

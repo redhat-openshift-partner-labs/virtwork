@@ -51,10 +51,9 @@ var _ = Describe("CreateVM [integration]", func() {
 
 	It("should be idempotent on repeated calls", func() {
 		opts := testutil.DefaultVMOpts("integ-vm-idem", namespace)
-		vmObj := vm.BuildVMSpec(opts)
 
-		Expect(vm.CreateVM(ctx, c, vmObj)).To(Succeed())
-		Expect(vm.CreateVM(ctx, c, vmObj)).To(Succeed())
+		Expect(vm.CreateVM(ctx, c, vm.BuildVMSpec(opts))).To(Succeed())
+		Expect(vm.CreateVM(ctx, c, vm.BuildVMSpec(opts))).To(Succeed())
 	})
 
 	It("should set the correct labels on the created VM", func() {
