@@ -1,0 +1,121 @@
+name: Bug Report
+description: Report a defect in virtwork
+title: "[Bug]: "
+labels: ["kind/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for reporting a bug. Please fill out the fields below so we can reproduce and fix the issue."
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the bug.
+      placeholder: Describe what happened and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: The exact commands or steps to reproduce the behavior.
+      placeholder: |
+        1. Run `virtwork run --workloads cpu --vm-count 2`
+        2. Wait for VMs to become ready
+        3. Observe error "..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened. Include error messages, logs, or stack traces.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Command
+      description: Which virtwork command was being run?
+      options:
+        - "virtwork run"
+        - "virtwork cleanup"
+        - "virtwork run --dry-run"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: workload-type
+    attributes:
+      label: Workload Type
+      description: Which workload type(s) were involved?
+      multiple: true
+      options:
+        - cpu
+        - memory
+        - database
+        - network
+        - disk
+        - Not applicable
+    validations:
+      required: false
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      description: "Output of `go version`"
+      placeholder: "go1.25.0 linux/amd64"
+    validations:
+      required: true
+
+  - type: input
+    id: openshift-version
+    attributes:
+      label: OpenShift Version
+      description: "Output of `oc version` (server version)"
+      placeholder: "4.17.0"
+    validations:
+      required: false
+
+  - type: input
+    id: cnv-version
+    attributes:
+      label: OpenShift Virtualization (CNV) Version
+      description: The installed CNV/KubeVirt operator version.
+      placeholder: "4.17.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: deployment-mode
+    attributes:
+      label: Deployment Mode
+      description: How are you running virtwork?
+      options:
+        - "CLI from local machine (kubeconfig)"
+        - "In-cluster pod (deploy/ manifests)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, audit database queries, or log output.
+    validations:
+      required: false

@@ -1,0 +1,94 @@
+name: Workload Request
+description: Request a new workload type for virtwork
+title: "[Workload]: "
+labels: ["workload-request", "kind/feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing a new workload type. Virtwork currently supports: **cpu**, **memory**, **database**, **network**, and **disk**. Each workload runs inside a VM as a systemd service.
+
+        See [Adding a Workload](https://github.com/opdev/virtwork/blob/main/docs/development.md#adding-a-new-workload) for the implementation pattern.
+
+  - type: input
+    id: workload-name
+    attributes:
+      label: Workload Name
+      description: "A short, lowercase identifier for this workload (used in the --workloads flag)."
+      placeholder: "gpu, storage-replication, http, kafka"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Workload Description
+      description: What does this workload simulate? What metrics or behavior does it produce?
+      placeholder: "This workload simulates ... and produces metrics for ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: tooling
+    attributes:
+      label: Tooling and Packages
+      description: What tools or packages run inside the VM to generate the workload?
+      placeholder: |
+        - Tool: sysbench
+        - RPM packages: sysbench
+        - systemd service command: sysbench --test=oltp_read_write run
+    validations:
+      required: true
+
+  - type: dropdown
+    id: vm-count
+    attributes:
+      label: VM Count Model
+      description: How many VMs does this workload need per instance?
+      options:
+        - "Single VM (like cpu, memory, disk)"
+        - "VM pair - server and client (like network)"
+        - "Multiple coordinated VMs (describe in additional context)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: resources
+    attributes:
+      label: Required Resources
+      description: What Kubernetes resources does this workload need beyond the VM itself?
+      options:
+        - label: Persistent storage (DataVolume)
+        - label: Kubernetes Service (for inter-VM communication)
+        - label: Kubernetes Secret (for credentials or config)
+        - label: Additional CPU/memory beyond defaults
+        - label: GPU or special device passthrough
+
+  - type: textarea
+    id: cloud-init
+    attributes:
+      label: Cloud-Init Details
+      description: Describe the cloud-init configuration needed (packages to install, files to write, systemd units).
+      placeholder: |
+        Packages: sysbench
+        Systemd unit: sysbench continuous loop with Restart=always
+        Write files: /etc/sysbench/config.lua
+    validations:
+      required: false
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: What monitoring, testing, or operational scenario motivates this workload?
+      placeholder: "We need to validate Prometheus alerting rules for ... under sustained load."
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Links to tool documentation, example configurations, or related issues.
+    validations:
+      required: false

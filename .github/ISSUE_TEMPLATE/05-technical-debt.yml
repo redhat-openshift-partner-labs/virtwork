@@ -1,0 +1,110 @@
+name: Technical Debt
+description: Report code quality issues, missing tests, deprecated usage, or maintenance concerns
+title: "[Tech Debt]: "
+labels: ["tech-debt"]
+body:
+  - type: markdown
+    attributes:
+      value: "Help us keep the codebase healthy. Use this template for issues that aren't user-facing bugs or new features but still need attention — missing tests, deprecated APIs, code smells, hardcoded values, and similar maintenance concerns."
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What kind of technical debt is this?
+      options:
+        - "Missing tests"
+        - "Deprecated API or dependency"
+        - "Code quality / code smell"
+        - "Hardcoded values"
+        - "Error handling gaps"
+        - "Performance"
+        - "Security hardening"
+        - "Dependency update"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the technical debt and the risk it poses if left unaddressed.
+      placeholder: |
+        `internal/foo/bar.go` uses a hardcoded list that must be manually updated when ...
+        If a developer forgets to update it, ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How urgent is this? Consider the risk of leaving it unaddressed.
+      options:
+        - "Low — cosmetic or minor inconvenience"
+        - "Medium — increases maintenance burden or risk of future bugs"
+        - "High — actively causes silent failures or blocks development"
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-files
+    attributes:
+      label: Affected Files
+      description: List the files and line numbers involved.
+      placeholder: |
+        - `internal/foo/bar.go:42` — description of issue
+        - `internal/foo/baz.go:17` — related concern
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed Fix
+      description: Describe how this should be resolved.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which area of virtwork does this relate to?
+      multiple: true
+      options:
+        - "CLI / Configuration"
+        - "VM provisioning"
+        - "Workloads"
+        - "Cleanup"
+        - "Audit system"
+        - "OpenShift deployment"
+        - "Testing"
+        - "Build / CI"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture-layer
+    attributes:
+      label: Architecture Layer
+      description: "Which layer of the architecture is primarily affected? See docs/architecture.md."
+      options:
+        - "Layer 0 - Definitions (constants)"
+        - "Layer 1 - Infrastructure (config, cluster, cloudinit, audit)"
+        - "Layer 2 - K8s Abstractions (vm, resources, wait)"
+        - "Layer 3 - Workload Definitions (workloads, registry)"
+        - "Layer 4 - Orchestration (cmd, cleanup)"
+        - "Not sure"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, references to engineering journals, or related issues.
+    validations:
+      required: false

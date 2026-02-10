@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project Docs
+    url: https://github.com/opdev/virtwork/tree/main/docs
+    about: Check the existing documentation before filing an issue.
+  - name: Development Guide
+    url: https://github.com/opdev/virtwork/blob/main/docs/development.md
+    about: Instructions for building, testing, and adding new workloads.

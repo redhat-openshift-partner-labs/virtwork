@@ -1,0 +1,75 @@
+name: Feature Request
+description: Propose new functionality for virtwork
+title: "[Feature]: "
+labels: ["kind/feature"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for suggesting a feature. Please describe the problem you are trying to solve and your proposed solution."
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? Why is it needed?
+      placeholder: "I am trying to ... but currently ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you would like.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or workarounds you have considered.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which area of virtwork does this relate to?
+      multiple: true
+      options:
+        - "CLI / Configuration"
+        - "VM provisioning"
+        - "Workloads"
+        - "Cleanup"
+        - "Audit system"
+        - "OpenShift deployment"
+        - "Documentation"
+        - "Testing"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture-layer
+    attributes:
+      label: Architecture Layer
+      description: "Which layer of the architecture is primarily affected? See docs/architecture.md."
+      options:
+        - "Layer 0 - Definitions (constants)"
+        - "Layer 1 - Infrastructure (config, cluster, cloudinit, audit)"
+        - "Layer 2 - K8s Abstractions (vm, resources, wait)"
+        - "Layer 3 - Workload Definitions (workloads, registry)"
+        - "Layer 4 - Orchestration (cmd, cleanup)"
+        - "Not sure"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, mockups, examples, or references.
+    validations:
+      required: false

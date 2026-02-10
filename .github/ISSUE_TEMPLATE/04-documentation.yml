@@ -1,0 +1,59 @@
+name: Docs Issue
+description: Report missing, incorrect, or unclear documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve the virtwork documentation. Current docs:
+        - [README](https://github.com/opdev/virtwork/blob/main/README.md)
+        - [Architecture](https://github.com/opdev/virtwork/blob/main/docs/architecture.md)
+        - [Development Guide](https://github.com/opdev/virtwork/blob/main/docs/development.md)
+        - [User Guide](https://github.com/opdev/virtwork/tree/main/docs/guide)
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Type
+      description: What kind of documentation change is needed?
+      options:
+        - "Fix incorrect information"
+        - "Add missing documentation"
+        - "Clarify existing documentation"
+        - "Add or update diagrams"
+        - "Add examples or tutorials"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: doc-location
+    attributes:
+      label: Location
+      description: Which document is affected?
+      options:
+        - "README.md"
+        - "docs/architecture.md"
+        - "docs/development.md"
+        - "docs/guide/"
+        - "Code comments / GoDoc"
+        - "New document needed"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what is missing, incorrect, or unclear.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-content
+    attributes:
+      label: Suggested Content
+      description: If you have specific wording or content suggestions, provide them here.
+    validations:
+      required: false
